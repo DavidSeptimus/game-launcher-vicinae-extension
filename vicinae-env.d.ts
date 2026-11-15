@@ -6,7 +6,7 @@
  */
 
 type ExtensionPreferences = {
-  /** Steam Directory - Override Steam install detection (the folder that contains steamapps/). Leave empty to auto-detect native, Flatpak, and Snap installs. */
+  /** Steam Directory - Use only the Steam install in this folder (the one that contains steamapps/), instead of auto-detecting. Leave empty to auto-detect native, Flatpak, and Snap installs. */
 	"steamPath"?: string;
 
 	/** Steam Tools - Include Steam tools such as Proton and the Steam Linux Runtime in results. */

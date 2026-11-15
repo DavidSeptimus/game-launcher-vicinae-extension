@@ -98,7 +98,7 @@
     {
       "name": "steamPath",
       "title": "Steam Directory",
-      "description": "Override Steam install detection (the folder that contains steamapps/). Leave empty to auto-detect native, Flatpak, and Snap installs.",
+      "description": "Use only the Steam install in this folder (the one that contains steamapps/), instead of auto-detecting. Leave empty to auto-detect native, Flatpak, and Snap installs.",
       "type": "directory",
       "required": false
     },

@@ -29,6 +29,11 @@ export interface SteamCollections {
   user: SteamCollection[];
   /** Number of dynamic (rule-based) collections that were skipped. */
   dynamicSkipped: number;
+  /**
+   * False if a collections file existed but couldn't be read or parsed (e.g. Steam was mid-write).
+   * The hidden set is then incomplete and must not be used to forget "shown here" overrides.
+   */
+  ok: boolean;
 }
 
 interface CollectionValue {
@@ -52,14 +57,14 @@ function members(value: CollectionValue): Set<number> {
 
 /** Parse one cloud-storage-namespace-1.json document. Unknown or malformed entries are ignored. */
 export function parseCollections(json: string): SteamCollections {
-  const result: SteamCollections = { hidden: new Set(), user: [], dynamicSkipped: 0 };
+  const result: SteamCollections = { hidden: new Set(), user: [], dynamicSkipped: 0, ok: true };
   let doc: unknown;
   try {
     doc = JSON.parse(json);
   } catch {
-    return result;
+    return { ...result, ok: false };
   }
-  if (!Array.isArray(doc)) return result;
+  if (!Array.isArray(doc)) return { ...result, ok: false };
 
   for (const pair of doc) {
     if (!Array.isArray(pair) || typeof pair[0] !== "string" || !pair[0].startsWith("user-collections.")) continue;
@@ -92,7 +97,7 @@ function merge(a: SteamCollection | undefined, b: SteamCollection): SteamCollect
 
 /** Collections for every Steam account on this machine, merged (union of members per collection id). */
 export function readSteamCollections(userDataDirs: readonly string[]): SteamCollections {
-  const merged: SteamCollections = { hidden: new Set(), user: [], dynamicSkipped: 0 };
+  const merged: SteamCollections = { hidden: new Set(), user: [], dynamicSkipped: 0, ok: true };
   const user = new Map<string, SteamCollection>();
   for (const dir of userDataDirs) {
     const cloudDir = join(dir, "config/cloudstorage");
@@ -107,9 +112,11 @@ export function readSteamCollections(userDataDirs: readonly string[]): SteamColl
       try {
         text = readFileSync(join(cloudDir, f), "utf8");
       } catch {
+        merged.ok = false;
         continue;
       }
       const parsed = parseCollections(text);
+      merged.ok &&= parsed.ok;
       for (const id of parsed.hidden) merged.hidden.add(id);
       if (parsed.favorites) merged.favorites = merge(merged.favorites, parsed.favorites);
       for (const c of parsed.user) user.set(c.id, merge(user.get(c.id), c));

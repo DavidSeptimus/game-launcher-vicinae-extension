@@ -25,6 +25,11 @@ export interface LibraryScan {
   collections: GameCollection[];
   /** Games hidden in their launcher (e.g. Steam's Hidden collection). */
   hiddenInLauncher: Set<string>;
+  /**
+   * True only when every install was scanned and every launcher's hidden list was read, so
+   * `hiddenInLauncher` is authoritative (safe to forget overrides for games no longer in it).
+   */
+  hiddenInLauncherComplete: boolean;
   /** A preference that couldn't be used (e.g. a Steam Directory that isn't a Steam install). Worth telling the user. */
   settingsProblem?: string;
 }
@@ -37,6 +42,7 @@ export function scanLibrary(options: LibraryOptions = {}): LibraryScan {
   const installedSteamAppids = new Set<number>();
   const collections = new Map<string, GameCollection>();
   const hiddenInLauncher = new Set<string>();
+  let collectionsComplete = true;
   let complete = true;
 
   const appInfo = options.appInfoCachePath ? AppInfoStore.load(options.appInfoCachePath) : AppInfoStore.memory();
@@ -44,7 +50,7 @@ export function scanLibrary(options: LibraryOptions = {}): LibraryScan {
   // With nothing found we can't tell "no games" from "wrong path", so never treat the result as authoritative.
   if (installs.length === 0) complete = false;
   let settingsProblem: string | undefined;
-  if (options.steamPath?.trim() && !installs.some((i) => i.kind === "custom")) {
+  if (options.steamPath?.trim() && installs.length === 0) {
     complete = false;
     settingsProblem = `The Steam Directory setting doesn't point at a Steam install (no steamapps folder): ${options.steamPath.trim()}`;
   }
@@ -57,6 +63,7 @@ export function scanLibrary(options: LibraryOptions = {}): LibraryScan {
       for (const id of result.installedAppids) installedSteamAppids.add(id);
       for (const g of result.games) if (!byId.has(g.id)) byId.set(g.id, g);
       for (const id of result.hiddenInLauncher) hiddenInLauncher.add(id);
+      collectionsComplete &&= result.collectionsComplete;
       for (const c of result.collections) {
         const prev = collections.get(c.id);
         collections.set(c.id, prev ? { ...prev, gameIds: new Set([...prev.gameIds, ...c.gameIds]) } : c);
@@ -81,6 +88,7 @@ export function scanLibrary(options: LibraryOptions = {}): LibraryScan {
     // Favorites first, then user collections in the order the launcher scan sorted them.
     collections: [...collections.values()].sort((a, b) => Number(b.kind === "favorites") - Number(a.kind === "favorites")),
     hiddenInLauncher,
+    hiddenInLauncherComplete: complete && collectionsComplete,
   };
 }
 

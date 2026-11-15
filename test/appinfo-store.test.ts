@@ -2,7 +2,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { scanLibrary } from "../src/lib/library";
-import { AppInfoStore, RECHECK_AFTER_MS } from "../src/lib/steam/appinfo-store";
+import { AppInfoStore, RECHECK_AFTER_MS, RECHECK_UNKNOWN_AFTER_MS } from "../src/lib/steam/appinfo-store";
 import { scanSteamInstall } from "../src/lib/steam/library";
 import { type KvValue, writeAppinfo } from "./fixtures/appinfo-writer";
 import { libraryFolders, makeTempDir, manifest, writeFile } from "./fixtures/fake-steam";
@@ -27,9 +27,12 @@ describe("AppInfoStore", () => {
     const path = join(makeTempDir(), "c.json");
     writeFileSync(path, JSON.stringify({ version: 99, apps: { 1: { type: "game" } } }));
     expect(AppInfoStore.load(path).size).toBe(0);
-    writeFileSync(path, JSON.stringify({ version: 1, apps: { 1: { type: "game" }, x: { type: "game" }, 2: { icon: "no type" } } }));
+    writeFileSync(
+      path,
+      JSON.stringify({ version: 1, apps: { 1: { type: "game" }, x: { type: "game" }, 2: { icon: "no type" }, 3: { checkedAt: 5 } } }),
+    );
     const store = AppInfoStore.load(path);
-    expect(store.size).toBe(1);
+    expect(store.size).toBe(2); // 1 (typed) and 3 (unknown, with a check time)
     expect(store.isFresh(1)).toBe(false); // no checkedAt: re-check on next scan
   });
 
@@ -118,11 +121,32 @@ describe("scanning with an AppInfoStore", () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it("doesn't remember apps whose type Steam doesn't know yet", () => {
+  it("remembers apps Steam has no type for, so appinfo.vdf isn't re-read every open, and re-checks them daily", () => {
     const root = steam([{ appid: 5, name: "Fresh" }]);
-    const store = AppInfoStore.memory();
+    let now = Date.now();
+    const store = AppInfoStore.memory({ now: () => now });
     scanSteamInstall({ root, kind: "native" }, { appInfo: store });
-    expect(store.get(5)).toBeUndefined();
+    expect(store.get(5)).toEqual({ checkedAt: now });
+    expect(store.isFresh(5)).toBe(true);
+
+    // Steam has since fetched the app's info; it's picked up after a day, not before.
+    writeFile(join(root, "appcache/appinfo.vdf"), writeAppinfo([{ appid: 5, kv: { appinfo: { common: { type: "Game" } } } }], 29));
+    scanSteamInstall({ root, kind: "native" }, { appInfo: store });
+    expect(store.get(5)?.type).toBeUndefined();
+    now += RECHECK_UNKNOWN_AFTER_MS + 1;
+    scanSteamInstall({ root, kind: "native" }, { appInfo: store });
+    expect(store.get(5)?.type).toBe("game");
+  });
+
+  it("keeps known info when appinfo.vdf no longer lists an app", () => {
+    const root = steam([{ appid: 6, name: "Old", type: "Game" }]);
+    let now = Date.now();
+    const store = AppInfoStore.memory({ now: () => now });
+    scanSteamInstall({ root, kind: "native" }, { appInfo: store });
+    writeFile(join(root, "appcache/appinfo.vdf"), writeAppinfo([], 29));
+    now += RECHECK_AFTER_MS + 1;
+    scanSteamInstall({ root, kind: "native" }, { appInfo: store });
+    expect(store.get(6)).toMatchObject({ type: "game", checkedAt: now });
   });
 
   it("scanLibrary persists the store and forgets uninstalled apps only after a complete scan", () => {

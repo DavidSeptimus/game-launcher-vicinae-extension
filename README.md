@@ -19,6 +19,8 @@ GamesLauncher plugin. Steam is supported today; Heroic (Epic/GOG/Amazon) and Lut
 - The dropdown has a **Steam** section with Favorites and your manual collections (those with installed games).
   Dynamic (rule-based) collections aren't supported yet.
 - Works with native, Flatpak (`com.valvesoftware.Steam`) and Snap Steam installs, and every Steam library folder.
+  The Steam Directory setting replaces auto-detection with a single install; if it isn't a Steam folder, the empty
+  state says so.
 - "Clear Artwork Cache…" in every game's action menu purges downloaded art (with confirmation).
 - Sharp artwork on HiDPI screens: Steam's local cache only holds 1x art (300x450 covers, 32px icons), so by default
   the extension downloads 2x covers/banners from Steam's CDN and extracts the largest image from each game's client

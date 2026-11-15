@@ -5,7 +5,6 @@ import { SettingsAction } from "./components/game-actions";
 import { GameGrid, type GameViewProps } from "./components/game-grid";
 import { GameList } from "./components/game-list";
 import { useHiresArtwork } from "./hooks/use-hires-artwork";
-import { openArtworkCache } from "./lib/artwork-location";
 import { confirmAndClearArtworkCache } from "./lib/clear-artwork";
 import {
   applyFilter,
@@ -31,6 +30,8 @@ export default function SearchGames() {
 
   const [scan, setScan] = useState<LibraryScan | undefined>();
   const [hiddenState, setHiddenState] = useState<HiddenState | undefined>();
+  // If the saved hidden lists couldn't be loaded, never save: that would overwrite them with an empty list.
+  const [hiddenLoadFailed, setHiddenLoadFailed] = useState(false);
   const [filter, setFilter] = useState<GameFilter>("visible");
 
   // Vicinae unloads the command when its window closes, so every open starts with a fresh scan
@@ -41,34 +42,44 @@ export default function SearchGames() {
       includeNonGames: prefs.includeNonGames,
       appInfoCachePath: join(environment.supportPath, "appinfo-cache.json"),
     });
+    // A bad Steam Directory setting means nothing is scanned, so the empty state explains it (no toast needed).
     for (const w of result.warnings) console.warn(w);
-    if (result.settingsProblem) {
-      // A broken preference is worth interrupting for; routine warnings (e.g. an unplugged library drive) aren't.
-      void showToast({ style: Toast.Style.Failure, title: "Steam Directory setting ignored", message: result.settingsProblem });
-    }
     setScan(result);
   }, [prefs.steamPath, prefs.includeNonGames]);
 
   useEffect(() => {
     // Defer so the loading state renders before the synchronous filesystem scan.
     const timer = setTimeout(runScan, 0);
-    loadHiddenState().then(setHiddenState, () => setHiddenState(emptyHiddenState()));
+    loadHiddenState().then(setHiddenState, (err) => {
+      console.warn("Couldn't load hidden games", err);
+      setHiddenLoadFailed(true);
+      setHiddenState(emptyHiddenState());
+    });
     return () => clearTimeout(timer);
   }, [runScan]);
 
-  // Forget "show anyway" overrides for games Steam no longer hides.
+  // Forget "show anyway" overrides for games Steam no longer hides — but only when Steam's hidden
+  // list was read completely; a failed or partial read would otherwise wipe the overrides.
   useEffect(() => {
-    if (!scan || !hiddenState) return;
+    if (!scan || !hiddenState || hiddenLoadFailed || !scan.hiddenInLauncherComplete) return;
     const pruned = pruneShown(hiddenState, scan.hiddenInLauncher);
     if (pruned) {
       setHiddenState(pruned);
       void saveHiddenState(pruned);
     }
-  }, [scan, hiddenState]);
+  }, [scan, hiddenState, hiddenLoadFailed]);
 
   const onToggleHidden = useCallback(
     async (game: Game) => {
       if (!scan || !hiddenState) return;
+      if (hiddenLoadFailed) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Can't change hidden games right now",
+          message: "Your hidden games couldn't be loaded. Reopen the command to try again.",
+        });
+        return;
+      }
       const result = toggleHidden(game.id, hiddenState, scan.hiddenInLauncher);
       setHiddenState(result.state);
       await saveHiddenState(result.state);
@@ -78,7 +89,7 @@ export default function SearchGames() {
         message: result.stillHiddenInLauncher ? "Shown here, but still hidden in Steam" : undefined,
       });
     },
-    [scan, hiddenState],
+    [scan, hiddenState, hiddenLoadFailed],
   );
 
   const hidden = useMemo(
@@ -94,11 +105,10 @@ export default function SearchGames() {
   const collectionNames = useCallback((gameId: string) => (scan ? collectionNamesFor(scan, gameId) : []), [scan]);
 
   const artworkSource = prefs.artworkSource === "local" ? "local" : "hires";
-  const { art: hires, clearCache } = useHiresArtwork(scan, settings, artworkSource);
+  const { art: hires, usage, clearCache } = useHiresArtwork(scan, settings, artworkSource);
   const onClearCache = useCallback(() => {
-    const cache = openArtworkCache(artworkSource);
-    void confirmAndClearArtworkCache(cache.usage(), clearCache, { redownload: artworkSource === "hires" });
-  }, [clearCache, artworkSource]);
+    void confirmAndClearArtworkCache(usage(), clearCache, { redownload: artworkSource === "hires" });
+  }, [usage, clearCache, artworkSource]);
 
   const isLoading = !scan || !hiddenState;
   const isGrid = settings.layout === "grid";

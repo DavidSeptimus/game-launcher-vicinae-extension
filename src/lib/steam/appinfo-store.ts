@@ -11,8 +11,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 export interface StoredAppInfo {
-  /** Lower-cased appinfo common.type ("game", "tool", ...). Entries are only stored when this is known. */
-  type: string;
+  /** Lower-cased appinfo common.type ("game", "tool", ...). Undefined: appinfo.vdf had no type for the app when checked. */
+  type?: string;
   icon?: string;
   clientIcon?: string;
   /** When this entry was last confirmed against appinfo.vdf (ms since epoch). */
@@ -22,6 +22,8 @@ export interface StoredAppInfo {
 const VERSION = 1;
 /** Re-check entries against appinfo.vdf after this long, to pick up changed icon hashes. */
 export const RECHECK_AFTER_MS = 30 * 24 * 3600 * 1000;
+/** Apps appinfo.vdf had no type for are usually just not fetched yet: re-check those daily. */
+export const RECHECK_UNKNOWN_AFTER_MS = 24 * 3600 * 1000;
 
 export interface AppInfoStoreOptions {
   now?: () => number;
@@ -51,7 +53,9 @@ export class AppInfoStore {
       const doc = JSON.parse(readFileSync(path, "utf8")) as { version?: number; apps?: Record<string, StoredAppInfo> };
       if (doc.version === VERSION && doc.apps && typeof doc.apps === "object") {
         for (const [id, info] of Object.entries(doc.apps)) {
-          if (/^\d+$/.test(id) && info && typeof info.type === "string") {
+          // Typed entries are always usable; "unknown" entries only mean something with a check time.
+          const valid = typeof info?.type === "string" || (info?.type === undefined && typeof info?.checkedAt === "number");
+          if (/^\d+$/.test(id) && valid) {
             apps.set(Number(id), { ...info, checkedAt: typeof info.checkedAt === "number" ? info.checkedAt : 0 });
           }
         }
@@ -69,12 +73,23 @@ export class AppInfoStore {
   /** Whether the entry exists and was checked against appinfo.vdf recently enough. */
   isFresh(appid: number): boolean {
     const entry = this.apps.get(appid);
-    return entry !== undefined && this.now() - entry.checkedAt <= RECHECK_AFTER_MS;
+    if (!entry) return false;
+    return this.now() - entry.checkedAt <= (entry.type ? RECHECK_AFTER_MS : RECHECK_UNKNOWN_AFTER_MS);
   }
 
   /** Record what appinfo.vdf says about an app (also marks it as freshly checked). */
-  set(appid: number, info: Omit<StoredAppInfo, "checkedAt">): void {
+  set(appid: number, info: Omit<StoredAppInfo, "checkedAt"> & { type: string }): void {
     this.apps.set(appid, { type: info.type, icon: info.icon, clientIcon: info.clientIcon, checkedAt: this.now() });
+    this.dirty = true;
+  }
+
+  /**
+   * Note that appinfo.vdf had nothing (new) for an app. Known info is kept; an
+   * app with no info is remembered as unknown so it isn't looked up on every scan.
+   */
+  markChecked(appid: number): void {
+    const prev = this.apps.get(appid);
+    this.apps.set(appid, { ...prev, checkedAt: this.now() });
     this.dirty = true;
   }
 

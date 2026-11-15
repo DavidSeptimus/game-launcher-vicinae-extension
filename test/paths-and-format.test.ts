@@ -1,7 +1,7 @@
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatLastPlayed, formatPlaytime } from "../src/lib/format";
+import { formatBytes, formatLastPlayed, formatPlaytime, markdownUrl } from "../src/lib/format";
 import { acronyms, compareGames, type Game } from "../src/lib/games";
 import { emptyStateText, type LibraryScan } from "../src/lib/library";
 import { findSteamInstalls } from "../src/lib/steam/paths";
@@ -26,6 +26,16 @@ describe("findSteamInstalls", () => {
     const custom = makeTempDir();
     mkdirSync(join(custom, "steamapps"));
     expect(findSteamInstalls({ home, override: ` ${custom} ` })).toEqual([{ root: custom, kind: "custom" }]);
+  });
+
+  it("uses only the override, even when another install would be detected", () => {
+    const home = makeTempDir();
+    mkdirSync(join(home, ".local/share/Steam/steamapps"), { recursive: true });
+    const custom = makeTempDir();
+    mkdirSync(join(custom, "steamapps"));
+    expect(findSteamInstalls({ home, override: custom })).toEqual([{ root: custom, kind: "custom" }]);
+    // An invalid override finds nothing rather than silently falling back to detection.
+    expect(findSteamInstalls({ home, override: join(custom, "nope") })).toEqual([]);
   });
 
   it("ignores directories that aren't Steam installs", () => {
@@ -100,6 +110,7 @@ describe("emptyStateText", () => {
     complete: false,
     collections: [],
     hiddenInLauncher: new Set(),
+    hiddenInLauncherComplete: false,
     ...over,
   });
 
@@ -127,5 +138,13 @@ describe("emptyStateText", () => {
     expect(t.description).toBe(
       "Looked in:\n• Steam (native): /home/u/.local/share/Steam\n\nBad setting\n\nSteam library folder not found: /mnt/games",
     );
+  });
+});
+
+describe("markdownUrl", () => {
+  it("percent-encodes characters that would break a Markdown link", () => {
+    expect(markdownUrl("/mnt/Games (SSD)/Steam/a#b?c.jpg")).toBe("file:///mnt/Games%20%28SSD%29/Steam/a%23b%3Fc.jpg");
+    expect(markdownUrl("/home/u/it's!.png")).toBe("file:///home/u/it%27s%21.png");
+    expect(markdownUrl("https://cdn.example/a(1).jpg")).toBe("https://cdn.example/a%281%29.jpg");
   });
 });

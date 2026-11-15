@@ -1,4 +1,4 @@
-import { utimesSync } from "node:fs";
+import { symlinkSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { isTool, readLibraryFolders, scanSteamInstall } from "../src/lib/steam/library";
@@ -62,7 +62,7 @@ describe("scanSteamInstall", () => {
   it("returns installed games only, with tools filtered", () => {
     const { games, warnings, installedAppids, complete } = scanSteamInstall({ root, kind: "native" });
     expect(games.map((g) => g.steam?.appid).sort()).toEqual([100, 200]);
-    expect(warnings).toEqual(["Steam library folder not found: /nonexistent/library"]);
+    expect(warnings).toEqual(["Steam library folder not found (drive not mounted?): /nonexistent/library"]);
     // Tools are still "installed" (their cached art must survive pruning); the missing library makes the scan partial.
     expect(installedAppids.sort((a, b) => a - b)).toEqual([100, 200, 1493710]);
     expect(complete).toBe(false);
@@ -121,5 +121,25 @@ describe("isTool", () => {
     expect(isTool(m(1, "Proton-themed puzzle game"), { type: "game" })).toBe(false);
     expect(isTool(m(2, "Blender"), { type: "application" })).toBe(false);
     expect(isTool(m(3, "Some DLC"), { type: "dlc" })).toBe(true);
+  });
+});
+
+describe("library folders", () => {
+  it("treats an empty mount point (no steamapps/) as unreachable, so the scan isn't complete", () => {
+    const root = makeTempDir();
+    const unmounted = makeTempDir(); // exists, but the drive "isn't mounted"
+    writeFile(join(root, "steamapps/libraryfolders.vdf"), libraryFolders([root, unmounted]));
+    writeFile(join(root, "steamapps/appmanifest_1.acf"), manifest({ appid: 1, name: "One", installdir: "One" }));
+    const result = scanSteamInstall({ root, kind: "native" });
+    expect(result.complete).toBe(false);
+    expect(result.warnings).toContain(`Steam library folder not found (drive not mounted?): ${unmounted}`);
+  });
+
+  it("de-duplicates library folders listed through a symlink", () => {
+    const root = makeTempDir();
+    const link = join(makeTempDir(), "steam-link");
+    symlinkSync(root, link);
+    writeFile(join(root, "steamapps/libraryfolders.vdf"), libraryFolders([link, root]));
+    expect(readLibraryFolders(root)).toEqual([root]);
   });
 });

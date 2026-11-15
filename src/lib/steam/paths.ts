@@ -39,11 +39,15 @@ function safeRealpath(path: string): string {
  * Find every distinct Steam installation on the system. `~/.steam/steam` is
  * usually a symlink to `~/.local/share/Steam`, so roots are de-duplicated by
  * their resolved path.
+ *
+ * A configured override replaces detection entirely: only that folder is
+ * used, and if it isn't a Steam install, nothing is found.
  */
 export function findSteamInstalls(options: { override?: string; home?: string } = {}): SteamInstall[] {
-  const candidates: { path: string; kind: SteamInstallKind }[] = [];
-  if (options.override?.trim()) candidates.push({ path: options.override.trim(), kind: "custom" });
-  candidates.push(...candidateSteamRoots(options.home));
+  const override = options.override?.trim();
+  const candidates: { path: string; kind: SteamInstallKind }[] = override
+    ? [{ path: override, kind: "custom" }]
+    : candidateSteamRoots(options.home);
 
   const seen = new Set<string>();
   const installs: SteamInstall[] = [];

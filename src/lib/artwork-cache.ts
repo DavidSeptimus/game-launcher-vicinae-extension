@@ -155,7 +155,9 @@ export class ArtworkCache {
       this.remove(this.file(req.appid, `${kind}@1x.jpg`)); // superseded
       return true;
     }
-    if (req.hasLocal) return false; // the 1x CDN image is the same as the local copy
+    // The 1x CDN image is the same as Steam's local copy, and worse than a 2x we already have
+    // (a refresh that 404s keeps the old 2x and records the miss instead).
+    if (req.hasLocal || existsSync(this.file(req.appid, `${kind}@2x.jpg`))) return false;
     const lo = await this.download(cdnUrl(req.appid, kind, "1x"));
     if (lo) this.write(this.file(req.appid, `${kind}@1x.jpg`), lo);
     return Boolean(lo);

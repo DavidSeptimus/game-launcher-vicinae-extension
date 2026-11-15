@@ -53,7 +53,8 @@ function dibToRgba(dib: Buffer): { width: number; height: number; rgba: Buffer }
   const bitCount = dib.readUInt16LE(14);
   const compression = dib.readUInt32LE(16);
   if (bitCount !== 32 || (compression !== 0 && compression !== 3) || width <= 0 || height <= 0) return undefined;
-  const pixels = headerSize + (compression === 3 ? 12 : 0);
+  // BI_BITFIELDS colour masks follow a 40-byte BITMAPINFOHEADER; V4/V5 headers already contain them.
+  const pixels = headerSize + (compression === 3 && headerSize === 40 ? 12 : 0);
   const stride = width * 4;
   if (pixels + stride * height > dib.length) return undefined;
 

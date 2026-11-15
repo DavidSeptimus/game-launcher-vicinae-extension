@@ -80,6 +80,19 @@ describe("ArtworkCache downloads", () => {
     expect(existsSync(lo)).toBe(false);
   });
 
+  it("keeps a stale 2x image when the refresh 404s, instead of downloading 1x on every open", async () => {
+    const dir = makeTempDir();
+    const hi = writeFile(join(dir, "steam/15/portrait@2x.jpg"), "old2x");
+    age(hi, 40);
+    const { impl, calls } = fakeFetch({ [cdnUrl(15, "portrait", "1x")]: ok("1x") });
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl });
+
+    expect(await cache.ensure({ appid: 15, kind: "portrait", hasLocal: false })).toBe(hi);
+    expect(calls).toEqual([cdnUrl(15, "portrait", "2x")]);
+    expect(existsSync(join(dir, "steam/15/portrait@1x.jpg"))).toBe(false);
+    expect(cache.needsFetch({ appid: 15, kind: "portrait", hasLocal: false })).toBe(false);
+  });
+
   it("remembers 404s for a week, then retries", async () => {
     const dir = makeTempDir();
     let now = Date.now();

@@ -1,6 +1,6 @@
 import { Action, Icon, type Image, List } from "@vicinae/api";
 import { useState } from "react";
-import { formatBytes, formatLastPlayed, formatPlaytime } from "../lib/format";
+import { formatBytes, formatLastPlayed, formatPlaytime, markdownUrl } from "../lib/format";
 import type { Game, GameArtwork } from "../lib/games";
 import { pickArtwork, pickListIcon } from "../lib/view-settings";
 import { GameActions } from "./game-actions";
@@ -8,8 +8,7 @@ import type { GameViewProps } from "./game-grid";
 
 /** Markdown image for a local path or URL, sized for the detail pane. */
 function markdownImage(source: string, alt: string): string {
-  const url = /^https?:\/\//.test(source) ? source : `file://${encodeURI(source)}`;
-  return `![${alt.replace(/[[\]]/g, "")}](${url}?raycast-width=460)`;
+  return `![${alt.replace(/[[\]]/g, "")}](${markdownUrl(source)}?raycast-width=460)`;
 }
 
 function listIcon(game: Game, hires: GameArtwork | undefined): Image.ImageLike {

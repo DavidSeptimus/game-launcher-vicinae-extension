@@ -38,3 +38,17 @@ export function formatBytes(bytes: number | undefined): string | undefined {
   }
   return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
 }
+
+/**
+ * A URL usable as a Markdown link target for a local path or http(s) URL.
+ * Each path segment is percent-encoded, including the ( ) ! * ' that
+ * encodeURIComponent leaves alone, since ")" would end the Markdown link.
+ */
+export function markdownUrl(source: string): string {
+  if (/^https?:\/\//.test(source)) return source.replace(/[()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  const encoded = source
+    .split("/")
+    .map((seg) => encodeURIComponent(seg).replace(/[()!*']/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`))
+    .join("/");
+  return `file://${encoded}`;
+}

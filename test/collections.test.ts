@@ -8,7 +8,7 @@ import {
   resolveFilter,
 } from "../src/lib/game-views";
 import type { Game } from "../src/lib/games";
-import type { LibraryScan } from "../src/lib/library";
+import { type LibraryScan, scanLibrary } from "../src/lib/library";
 import { parseCollections, readSteamCollections } from "../src/lib/steam/collections";
 import { scanSteamInstall } from "../src/lib/steam/library";
 import { emptyHiddenState, isHidden, pruneShown, toggleHidden } from "../src/lib/visibility";
@@ -52,9 +52,10 @@ describe("parseCollections", () => {
     expect(parsed.dynamicSkipped).toBe(1);
   });
 
-  it("survives junk", () => {
-    expect(parseCollections("not json").user).toEqual([]);
-    expect(parseCollections("{}").hidden.size).toBe(0);
+  it("survives junk, and reports that the read failed", () => {
+    expect(parseCollections("not json")).toMatchObject({ user: [], ok: false });
+    expect(parseCollections("{}")).toMatchObject({ ok: false });
+    expect(parseCollections("[]").ok).toBe(true);
     expect(parseCollections(JSON.stringify([["user-collections.uc-x", { value: "{bad" }], 5, null])).user).toEqual([]);
   });
 
@@ -158,5 +159,28 @@ describe("game views", () => {
   it("names a game's collections", () => {
     expect(collectionNamesFor(scan, "steam:1")).toEqual(["Favorites"]);
     expect(collectionNamesFor(scan, "steam:4")).toEqual([]);
+  });
+});
+
+describe("hiddenInLauncherComplete", () => {
+  function steamWithCollections(json: string | undefined) {
+    const root = makeTempDir();
+    writeFile(join(root, "steamapps/appmanifest_1.acf"), manifest({ appid: 1, name: "One", installdir: "One" }));
+    if (json !== undefined) writeFile(join(root, "userdata/7/config/cloudstorage/cloud-storage-namespace-1.json"), json);
+    return root;
+  }
+  const scan = (root: string) => scanLibrary({ steamPath: root, home: makeTempDir() });
+
+  it("is true for a full scan with a readable (or absent) collections file", () => {
+    expect(scan(steamWithCollections(cloudStorage({ hidden: { added: [1] } }))).hiddenInLauncherComplete).toBe(true);
+    expect(scan(steamWithCollections(undefined)).hiddenInLauncherComplete).toBe(true);
+  });
+
+  it("is false when Steam's collections file is unreadable (e.g. mid-write)", () => {
+    expect(scan(steamWithCollections('[["user-collections.hidden", {"val')).hiddenInLauncherComplete).toBe(false);
+  });
+
+  it("is false when no Steam install was found", () => {
+    expect(scanLibrary({ home: makeTempDir() }).hiddenInLauncherComplete).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { acronyms, type Game, type GameCollection } from "../games";
 import { getNumber, getObject, getString, parseVdf, type VdfObject } from "../vdf/text";
@@ -90,7 +90,17 @@ export function readLibraryFolders(steamRoot: string): string[] {
       if (path) paths.push(path);
     }
   }
-  return [...new Set(paths.map((p) => p.replace(/\/+$/, "")))];
+  // Resolve symlinks before de-duplicating: on Fedora Atomic /home -> /var/home, so the same
+  // library can be listed under both spellings.
+  return [...new Set(paths.map((p) => safeRealpath(p.replace(/\/+$/, ""))))];
+}
+
+function safeRealpath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
 
 export function parseManifest(text: string, libraryPath: string): SteamManifest | undefined {
@@ -208,6 +218,8 @@ export interface SteamScanResult {
   hiddenInLauncher: Set<string>;
   /** Dynamic (rule-based) Steam collections that aren't supported. */
   dynamicCollectionsSkipped: number;
+  /** False if Steam's collections file couldn't be read; `hiddenInLauncher` may then be incomplete. */
+  collectionsComplete: boolean;
 }
 
 /** Scan one Steam install for installed games. */
@@ -216,8 +228,9 @@ export function scanSteamInstall(install: SteamInstall, options: ScanOptions = {
   const manifests = new Map<number, SteamManifest>();
   let complete = true;
   for (const lib of readLibraryFolders(install.root)) {
-    if (!existsSync(lib)) {
-      warnings.push(`Steam library folder not found: ${lib}`);
+    // Check steamapps/, not the folder itself: an unmounted drive often leaves an empty mount point behind.
+    if (!existsSync(join(lib, "steamapps"))) {
+      warnings.push(`Steam library folder not found (drive not mounted?): ${lib}`);
       complete = false;
       continue;
     }
@@ -232,13 +245,18 @@ export function scanSteamInstall(install: SteamInstall, options: ScanOptions = {
   const wanted = new Set([...manifests.keys()].filter((id) => !store.isFresh(id)));
   if (wanted.size > 0) {
     const parsed = readAppInfo(install.root, wanted);
-    // Expired entries are still usable, so only warn when an app has no info at all.
-    if (!parsed && [...wanted].some((id) => !store.get(id))) {
+    // Expired entries are still usable, so only warn when an app has no type at all.
+    if (!parsed && [...wanted].some((id) => !store.get(id)?.type)) {
       warnings.push("Could not read Steam's appinfo.vdf; using built-in rules to hide Steam tools.");
     }
-    for (const [id, info] of parsed ?? []) {
-      // Apps Steam hasn't fetched product info for yet have no type; leave them out so they're retried.
-      if (info.type) store.set(id, { type: info.type, icon: info.icon, clientIcon: info.clientIcon });
+    if (parsed) {
+      for (const id of wanted) {
+        const info = parsed.get(id);
+        if (info?.type) store.set(id, { type: info.type, icon: info.icon, clientIcon: info.clientIcon });
+        // Not in appinfo.vdf, or no type yet: remember that we looked, so the (large) file
+        // isn't re-read on every open. Unknown entries are re-checked sooner than known ones.
+        else store.markChecked(id);
+      }
     }
   }
   const activity = readActivity(install.root);
@@ -303,5 +321,6 @@ export function scanSteamInstall(install: SteamInstall, options: ScanOptions = {
     collections,
     hiddenInLauncher: toIds(steamCollections.hidden),
     dynamicCollectionsSkipped: steamCollections.dynamicSkipped,
+    collectionsComplete: steamCollections.ok,
   };
 }

@@ -16,6 +16,8 @@ function setArt(map: Map<string, GameArtwork>, gameId: string, kind: CachedKind,
 export interface HiresArtwork {
   /** Cached high-resolution artwork, keyed by game id. */
   art: ReadonlyMap<string, GameArtwork>;
+  /** Files and bytes currently cached. */
+  usage: () => { files: number; bytes: number };
   /** Delete the whole cache. With downloads enabled, current art is re-fetched afterwards. */
   clearCache: () => { files: number; bytes: number };
 }
@@ -106,5 +108,6 @@ export function useHiresArtwork(scan: LibraryScan | undefined, settings: ViewSet
     return freed;
   }, [cache]);
 
-  return { art, clearCache };
+  const usage = useCallback(() => cache.usage(), [cache]);
+  return { art, usage, clearCache };
 }

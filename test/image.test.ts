@@ -47,6 +47,14 @@ describe("extractLargestIcon", () => {
     expect([...rgba.subarray(lastRow, lastRow + 4)]).toEqual([255, 0, 0, 255]);
   });
 
+  it.each([40, 124])("reads BI_BITFIELDS bitmaps with a %i-byte header at the right offset", (headerSize) => {
+    const icon = extractLargestIcon(buildIco([{ size: 64, bgra: [10, 20, 30, 200], headerSize, bitfields: true }]))!;
+    const { rgba } = decodeSimplePng(icon.png);
+    expect([...rgba.subarray(0, 4)]).toEqual([30, 20, 10, 200]);
+    const lastRow = (64 - 1) * 64 * 4;
+    expect([...rgba.subarray(lastRow, lastRow + 4)]).toEqual([255, 0, 0, 255]);
+  });
+
   it("makes alpha-less bitmaps opaque", () => {
     const icon = extractLargestIcon(buildIco([{ size: 4, bgra: [1, 2, 3, 0], marker: false }]))!;
     const { rgba } = decodeSimplePng(icon.png);
