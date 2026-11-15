@@ -1,3 +1,5 @@
+import { sourceOfGameId } from "./games";
+
 /**
  * Which games are hidden. Two sources are merged:
  *   - games hidden with this extension's own Hide action, and
@@ -72,7 +74,11 @@ export function pruneShown(
   hiddenInLauncher: ReadonlySet<string>,
   trusted: ReadonlySet<string>,
 ): HiddenState | undefined {
-  const launcherOf = (id: string) => id.slice(0, id.indexOf(":"));
-  const shown = new Set([...state.shown].filter((id) => !trusted.has(launcherOf(id)) || hiddenInLauncher.has(id)));
+  const shown = new Set(
+    [...state.shown].filter((id) => {
+      const source = sourceOfGameId(id);
+      return !source || !trusted.has(source) || hiddenInLauncher.has(id);
+    }),
+  );
   return shown.size === state.shown.size ? undefined : { hidden: state.hidden, shown };
 }

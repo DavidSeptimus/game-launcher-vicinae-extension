@@ -95,6 +95,7 @@ export function mergeCopies(preferred: Game, others: Game[]): Game {
     installDir: copies.find((c) => c.installDir)?.installDir,
     sizeOnDisk: copies.find((c) => c.sizeOnDisk)?.sizeOnDisk,
     artwork: mergeArtwork(copies.map((c) => c.artwork)),
+    ownArtwork: preferred.artwork,
     customArtwork: mergeArtwork(copies.map((c) => c.customArtwork)),
     keywords: unique(copies.flatMap((c) => c.keywords)),
     storeIds: unique(copies.flatMap((c) => c.storeIds)),

@@ -1,7 +1,7 @@
 import { ActionPanel, environment, getPreferenceValues, Grid, Icon, List, showToast, Toast } from "@vicinae/api";
 import { join } from "node:path";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { SettingsAction, SettingsActions } from "./components/game-actions";
+import { LauncherPriorityAction, SettingsAction, SettingsActions } from "./components/game-actions";
 import { LauncherPriority } from "./components/launcher-priority";
 import { GameGrid, type GameViewProps } from "./components/game-grid";
 import { GameList } from "./components/game-list";
@@ -195,14 +195,30 @@ export default function SearchGames() {
   const Dropdown = isGrid ? Grid.Dropdown : List.Dropdown;
   const EmptyView = isGrid ? Grid.EmptyView : List.EmptyView;
 
-  const empty =
-    activeFilter === "hidden"
-      ? { title: "No hidden games", description: "Games hidden here or in their launcher show up in this list." }
-      : activeFilter !== "visible"
-        ? { title: "No games in this collection", description: "None of this collection's games are installed." }
-        : scan
-          ? emptyStateText(scan)
-          : undefined;
+  const empty = (() => {
+    if (activeFilter === "hidden") {
+      return { title: "No hidden games", description: "Games hidden here or in their launcher show up in this list." };
+    }
+    if (activeFilter.startsWith("launcher:")) {
+      const name = LAUNCHER_NAMES[activeFilter.slice("launcher:".length) as GameSource];
+      return { title: `No ${name} games`, description: `No visible games are installed through ${name}.` };
+    }
+    if (activeFilter.startsWith("collection:")) {
+      return { title: "No games in this collection", description: "None of this collection's games are installed." };
+    }
+    return scan ? emptyStateText(scan) : undefined;
+  })();
+
+  // Reachable from every game's actions and from the empty state (e.g. when every game is hidden).
+  const priorityView =
+    enabledLaunchers.length > 1 ? (
+      <LauncherPriority
+        initial={priority}
+        enabled={enabledLaunchers}
+        duplicatesMerged={prefs.hideDuplicates !== false}
+        onChange={onPriorityChange}
+      />
+    ) : undefined;
 
   const viewProps: GameViewProps = {
     games,
@@ -213,21 +229,7 @@ export default function SearchGames() {
     collectionNames,
     showLauncher: multiLauncher,
     onToggleHidden,
-    settingsActions: (
-      <SettingsActions
-        onClearCache={onClearCache}
-        priorityView={
-          enabledLaunchers.length > 1 ? (
-            <LauncherPriority
-              initial={priority}
-              enabled={enabledLaunchers}
-              duplicatesMerged={prefs.hideDuplicates !== false}
-              onChange={onPriorityChange}
-            />
-          ) : undefined
-        }
-      />
-    ),
+    settingsActions: <SettingsActions onClearCache={onClearCache} priorityView={priorityView} />,
     searchBarAccessory: (
       <Dropdown tooltip="Show" value={activeFilter} onChange={(v) => setFilter(v as GameFilter)}>
         <Dropdown.Item title="Installed Games" value="visible" icon={Icon.GameController} />
@@ -266,6 +268,7 @@ export default function SearchGames() {
         actions={
           <ActionPanel>
             <SettingsAction />
+            <LauncherPriorityAction view={priorityView} />
           </ActionPanel>
         }
       />

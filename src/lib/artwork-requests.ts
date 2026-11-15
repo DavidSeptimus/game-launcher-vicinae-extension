@@ -1,6 +1,6 @@
 /** Which artwork to cache for which games. Pure, so it can be unit-tested without Vicinae. */
 import type { ArtworkRequest, CachedKind } from "./artwork-cache";
-import type { Game } from "./games";
+import { copiesOf, type Game } from "./games";
 import type { ViewSettings } from "./view-settings";
 
 /** Which cached artwork kinds the current layout actually displays. */
@@ -17,12 +17,16 @@ export function neededKinds(settings: ViewSettings): CachedKind[] {
 /** The cache request for a game's artwork kind, or undefined when there's nothing to fetch. */
 export function requestFor(game: Game, kind: CachedKind): ArtworkRequest | undefined {
   if (!game.steam) return undefined;
+  // For a merged entry, look at the Steam copy itself: whether *Steam* has a local copy decides if a
+  // 1x download would be redundant, and this keeps requests the same whichever launcher is preferred.
+  const steamCopy = copiesOf(game).find((c) => c.source === "steam") ?? game;
+  const steamArt = (steamCopy === game ? game.ownArtwork : undefined) ?? steamCopy.artwork;
   // The user's own custom art always wins, so a download would never be shown.
   if (game.customArtwork?.[kind]) return undefined;
   return {
     appid: game.steam.appid,
     kind,
-    hasLocal: Boolean(game.artwork[kind]),
+    hasLocal: Boolean(steamArt[kind]),
     clientIcon: game.steam.clientIcon,
     localIco: game.steam.localIco,
   };

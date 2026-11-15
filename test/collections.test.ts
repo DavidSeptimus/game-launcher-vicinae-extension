@@ -7,7 +7,7 @@ import {
   hiddenGameIds,
   resolveFilter,
 } from "../src/lib/game-views";
-import type { Game } from "../src/lib/games";
+import { type Game, sourceOfGameId } from "../src/lib/games";
 import { type LibraryScan, scanLibrary } from "../src/lib/library";
 import { parseCollections, readSteamCollections } from "../src/lib/steam/collections";
 import { scanSteamInstall } from "../src/lib/steam/library";
@@ -144,6 +144,16 @@ describe("visibility", () => {
     const trusted = new Set(["steam"]);
     expect(pruneShown(state, steamHidden, trusted)?.shown).toEqual(new Set(["steam:2"]));
     expect(pruneShown({ hidden: new Set(), shown: new Set(["steam:2"]) }, steamHidden, trusted)).toBeUndefined();
+  });
+
+  it("works out an id's launcher, ignoring malformed or unknown ids", () => {
+    expect(sourceOfGameId("steam:10")).toBe("steam");
+    expect(sourceOfGameId("lutris:42-old-game")).toBe("lutris");
+    expect(sourceOfGameId("heroic:abc")).toBeUndefined();
+    expect(sourceOfGameId("no-colon")).toBeUndefined();
+    // Unknown-launcher overrides are kept rather than pruned under the wrong launcher.
+    const state = { hidden: new Set<string>(), shown: new Set(["no-colon", "heroic:abc", "lutris:9-x"]) };
+    expect(pruneShown(state, new Set(), new Set(["lutris"]))?.shown).toEqual(new Set(["no-colon", "heroic:abc"]));
   });
 
   it("leaves overrides alone for launchers whose hidden list wasn't read (disabled or unreadable)", () => {

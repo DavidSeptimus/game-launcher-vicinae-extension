@@ -61,7 +61,7 @@ describe("scanLutris", () => {
     expect(result).toMatchObject({ found: true, complete: true, hiddenListComplete: true, warnings: [] });
     expect(result.games.map((g) => g.title)).toEqual(["Tyrian 2000", "Manual Game"]);
     expect(result.games[0]).toMatchObject({
-      id: "lutris:1",
+      id: "lutris:1-tyrian-2000",
       source: "lutris",
       launchUri: "lutris:rungameid/1",
       installDir: "/home/u/Games/gog/tyrian-2000",
@@ -87,11 +87,25 @@ describe("scanLutris", () => {
       { id: 3, name: "C", slug: "c", categories: ["Retro", ".uninstalled"] },
     ]);
     const result = scanLutris({ home });
-    expect(result.hiddenInLauncher).toEqual(new Set(["lutris:2"]));
+    expect(result.hiddenInLauncher).toEqual(new Set(["lutris:2-b"]));
     expect(result.collections).toEqual([
-      { id: "lutris:favorite", name: "Favorites", source: "lutris", kind: "favorites", gameIds: new Set(["lutris:1"]) },
-      { id: "lutris:category:Retro", name: "Retro", source: "lutris", kind: "user", gameIds: new Set(["lutris:1", "lutris:3"]) },
+      { id: "lutris:favorite", name: "Favorites", source: "lutris", kind: "favorites", gameIds: new Set(["lutris:1-a"]) },
+      { id: "lutris:category:Retro", name: "Retro", source: "lutris", kind: "user", gameIds: new Set(["lutris:1-a", "lutris:3-c"]) },
     ]);
+  });
+
+  it("gives a reused row id a new game id, so hidden state doesn't carry over to a different game", () => {
+    const home = makeTempDir();
+    const { dataDir } = nativeLutris(home);
+    makeLutrisDb(dataDir, [{ id: 42, name: "Old Game", slug: "old-game" }]);
+    const before = scanLutris({ home }).games[0]!;
+    // Lutris deletes the game; SQLite hands the same row id to the next one added.
+    makeLutrisDb(join(makeTempDir(), "unused"), []);
+    const fresh = makeTempDir();
+    makeLutrisDb(join(fresh, ".local/share/lutris"), [{ id: 42, name: "New Game", slug: "new-game" }]);
+    const after = scanLutris({ home: fresh }).games[0]!;
+    expect([before.id, after.id]).toEqual(["lutris:42-old-game", "lutris:42-new-game"]);
+    expect(after.launchUri).toBe("lutris:rungameid/42"); // launching still uses the row id
   });
 
   it("copes with databases that have no categories tables", () => {
@@ -149,8 +163,8 @@ describe("scanLutris", () => {
     const flatpak = join(home, ".var/app/net.lutris.Lutris/data/lutris");
     makeLutrisDb(flatpak, [{ id: 1, name: "Flatpak Game", slug: "flatpak-game", categories: ["favorite"] }]);
     const result = scanLutris({ home });
-    expect(result.games.map((g) => [g.id, g.title, g.launchUri])).toEqual([["lutris:1", "Native Game", "lutris:rungameid/1"]]);
-    expect(result.hiddenInLauncher).toEqual(new Set(["lutris:1"]));
+    expect(result.games.map((g) => [g.id, g.title, g.launchUri])).toEqual([["lutris:1-native-game", "Native Game", "lutris:rungameid/1"]]);
+    expect(result.hiddenInLauncher).toEqual(new Set(["lutris:1-native-game"]));
     expect(result.collections).toEqual([]); // the Flatpak install's favorites aren't read
     expect(result.sources).toEqual([`Lutris (native): ${join(home, ".local/share/lutris")}`]);
     expect(result.warnings).toEqual([
@@ -222,9 +236,9 @@ describe("Steam + Lutris", () => {
 
   it("shows a game in several launchers as one entry, opened with the preferred launcher", () => {
     const scan = scanLibrary({ home: bothLaunchers() });
-    expect(scan.games.map((g) => g.id).sort()).toEqual(["lutris:1", "steam:1145350", "steam:1527950"]);
+    expect(scan.games.map((g) => g.id).sort()).toEqual(["lutris:1-tyrian-2000", "steam:1145350", "steam:1527950"]);
     const wartales = scan.games.find((g) => g.id === "steam:1527950")!;
-    expect(wartales.alternates?.map((a) => [a.id, a.launchUri])).toEqual([["lutris:3", "lutris:rungameid/3"]]);
+    expect(wartales.alternates?.map((a) => [a.id, a.launchUri])).toEqual([["lutris:3-wartales", "lutris:rungameid/3"]]);
     // The Lutris favorite carries over to the Steam copy that's shown.
     const favorites = scan.collections.find((c) => c.id === "lutris:favorite");
     expect(favorites?.gameIds).toEqual(new Set(["steam:1145350"]));
@@ -233,8 +247,8 @@ describe("Steam + Lutris", () => {
   it("follows a custom launcher priority", () => {
     const scan = scanLibrary({ home: bothLaunchers(), launcherPriority: ["lutris", "steam"] });
     expect(scan.priority).toEqual(["lutris", "steam"]);
-    expect(scan.games.map((g) => g.id).sort()).toEqual(["lutris:1", "lutris:2", "lutris:3"]);
-    const wartales = scan.games.find((g) => g.id === "lutris:3")!;
+    expect(scan.games.map((g) => g.id).sort()).toEqual(["lutris:1-tyrian-2000", "lutris:2-hades-ii", "lutris:3-wartales"]);
+    const wartales = scan.games.find((g) => g.id === "lutris:3-wartales")!;
     expect(wartales.launchUri).toBe("lutris:rungameid/3");
     expect(wartales.alternates?.map((a) => a.id)).toEqual(["steam:1527950"]);
     expect(wartales.steam?.appid).toBe(1527950); // Steam actions and hi-res art still available
@@ -243,7 +257,7 @@ describe("Steam + Lutris", () => {
 
   it("shows every copy when duplicate hiding is off", () => {
     const scan = scanLibrary({ home: bothLaunchers(), hideDuplicates: false });
-    expect(scan.games.map((g) => g.id).sort()).toEqual(["lutris:1", "lutris:2", "lutris:3", "steam:1145350", "steam:1527950"]);
+    expect(scan.games.map((g) => g.id).sort()).toEqual(["lutris:1-tyrian-2000", "lutris:2-hades-ii", "lutris:3-wartales", "steam:1145350", "steam:1527950"]);
     expect(scan.games.every((g) => !g.alternates)).toBe(true);
   });
 
@@ -252,7 +266,7 @@ describe("Steam + Lutris", () => {
     const steamFirst = combineLibrary(raw, { launcherPriority: ["steam", "lutris"] });
     const lutrisFirst = combineLibrary(raw, { launcherPriority: ["lutris", "steam"] });
     expect(steamFirst.games.find((g) => g.title === "Wartales")?.id).toBe("steam:1527950");
-    expect(lutrisFirst.games.find((g) => g.title === "Wartales")?.id).toBe("lutris:3");
+    expect(lutrisFirst.games.find((g) => g.title === "Wartales")?.id).toBe("lutris:3-wartales");
     expect(lutrisFirst.launchers.map((l) => l.launcher)).toEqual(["lutris", "steam"]);
     // The raw scan isn't mutated by combining.
     expect(raw.launchers.map((l) => l.launcher)).toEqual(["steam", "lutris"]);
@@ -261,7 +275,7 @@ describe("Steam + Lutris", () => {
 
   it("only scans enabled launchers", () => {
     const home = bothLaunchers();
-    expect(scanLibrary({ home, enabledLaunchers: ["lutris"] }).games.map((g) => g.id).sort()).toEqual(["lutris:1", "lutris:2", "lutris:3"]);
+    expect(scanLibrary({ home, enabledLaunchers: ["lutris"] }).games.map((g) => g.id).sort()).toEqual(["lutris:1-tyrian-2000", "lutris:2-hades-ii", "lutris:3-wartales"]);
     expect(scanLibrary({ home, enabledLaunchers: ["steam"] }).games.map((g) => g.id).sort()).toEqual(["steam:1145350", "steam:1527950"]);
   });
 
@@ -275,7 +289,7 @@ describe("Steam + Lutris", () => {
       ["lutris", 3],
     ]);
     expect(applyFilter(scan, hidden, "launcher:lutris").map((g) => g.id).sort()).toEqual([
-      "lutris:1",
+      "lutris:1-tyrian-2000",
       "steam:1145350",
       "steam:1527950",
     ]);

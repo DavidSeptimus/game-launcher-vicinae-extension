@@ -2,6 +2,7 @@ import { Action, Icon, type Image, List } from "@vicinae/api";
 import { useState } from "react";
 import { formatBytes, formatLastPlayed, formatPlaytime, markdownUrl } from "../lib/format";
 import { type Game, type GameArtwork, LAUNCHER_NAMES, launchersOf } from "../lib/games";
+import { hiresFor } from "../hooks/use-hires-artwork";
 import { pickArtwork, pickListIcon } from "../lib/view-settings";
 import { GameActions } from "./game-actions";
 import type { GameViewProps } from "./game-grid";
@@ -97,7 +98,7 @@ export function GameList(props: GameViewProps & { initialShowDetail: boolean }) 
                 key={game.id}
                 id={game.id}
                 title={game.title}
-                icon={listIcon(game, hires.get(game.id))}
+                icon={listIcon(game, hiresFor(game, hires))}
                 keywords={game.keywords}
                 accessories={
                   showDetail
@@ -113,7 +114,7 @@ export function GameList(props: GameViewProps & { initialShowDetail: boolean }) 
                         { text: formatLastPlayed(game.lastPlayed).replace(/^Played /, ""), icon: Icon.Clock, tooltip: "Last played" },
                       ]
                 }
-                detail={showDetail ? <GameDetail game={game} hires={hires.get(game.id)} collections={props.collectionNames(game.id)} /> : undefined}
+                detail={showDetail ? <GameDetail game={game} hires={hiresFor(game, hires)} collections={props.collectionNames(game.id)} /> : undefined}
                 actions={
                   <GameActions
                     game={game}

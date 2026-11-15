@@ -40,7 +40,22 @@ interface GameRow {
 
 interface CategoryRow {
   game_id: number;
+  slug: string | null;
   name: string;
+}
+
+/**
+ * Game id for a Lutris game. SQLite reuses the highest row id after a delete, so the row id alone
+ * could pass one game's hidden state to a later, different game; the slug makes a reused id distinct.
+ * (Launching still uses the row id: lutris:rungameid/<id>.)
+ */
+export function lutrisGameId(rowId: number, slug: string | null): string {
+  return `lutris:${rowId}-${slug ?? ""}`;
+}
+
+/** Lutris service ids, lower-cased and trimmed ("GOG " -> "gog"). */
+export function normalizeService(service: string | null | undefined): string | undefined {
+  return service?.trim().toLowerCase() || undefined;
 }
 
 function firstExisting(paths: string[]): string | undefined {
@@ -92,7 +107,7 @@ function readSteamAppId(install: LutrisInstall, configpath: string | null): stri
  * from the Lutris service a game came through, or for Steam-runner games, the app id in its config.
  */
 export function storeIdsFor(row: Pick<GameRow, "service" | "service_id">, steamAppId?: string): string[] {
-  const service = row.service?.trim().toLowerCase();
+  const service = normalizeService(row.service);
   const id = row.service_id?.trim();
   const ids = service && id ? [`${service}:${id}`] : [];
   if (steamAppId && !ids.includes(`steam:${steamAppId}`)) ids.push(`steam:${steamAppId}`);
@@ -103,11 +118,11 @@ function toGame(install: LutrisInstall, row: GameRow): Game | undefined {
   if (!row.name || !row.slug) return undefined;
   const lastPlayed = row.lastplayed && row.lastplayed > 0 ? Math.floor(row.lastplayed) : 0;
   const playtimeMinutes = row.playtime && row.playtime > 0 ? Math.round(row.playtime * 60) : undefined; // Lutris stores hours
-  const service = row.service?.trim().toLowerCase() || undefined;
+  const service = normalizeService(row.service);
   // Steam-runner games added by hand have no service link; their app id is only in the game's config.
   const steamAppId = row.runner === "steam" && service !== "steam" ? readSteamAppId(install, row.configpath) : undefined;
   return {
-    id: `lutris:${row.id}`,
+    id: lutrisGameId(row.id, row.slug),
     source: "lutris",
     title: row.name,
     launchUri: `lutris:rungameid/${row.id}`,
@@ -140,7 +155,8 @@ function scanInstall(install: LutrisInstall) {
     try {
       categories = db
         .prepare(
-          "SELECT gc.game_id AS game_id, c.name AS name FROM games_categories gc JOIN categories c ON c.id = gc.category_id",
+          "SELECT gc.game_id AS game_id, g.slug AS slug, c.name AS name FROM games_categories gc " +
+            "JOIN categories c ON c.id = gc.category_id JOIN games g ON g.id = gc.game_id",
         )
         .all() as unknown as CategoryRow[];
     } catch (err) {
@@ -209,8 +225,8 @@ export function scanLutris(options: LutrisScanOptions = {}): LutrisLauncherScan 
       result.hiddenListComplete = false;
       result.warnings.push(`Couldn't read Lutris's categories at ${install.dataDir}: ${scanned.categoriesError}`);
     }
-    for (const { game_id, name } of scanned.categories) {
-      const gameId = `lutris:${game_id}`;
+    for (const { game_id, slug, name } of scanned.categories) {
+      const gameId = lutrisGameId(game_id, slug);
       if (name === ".hidden") {
         result.hiddenInLauncher.add(gameId);
       } else if (!name.startsWith(".") && name !== "all") {

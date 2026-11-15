@@ -1,6 +1,7 @@
 import { Grid, Icon, type Image } from "@vicinae/api";
 import { formatBytes, formatLastPlayed, formatPlaytime } from "../lib/format";
 import { type Game, type GameArtwork, LAUNCHER_NAMES, launchersOf } from "../lib/games";
+import { type HiresArtMap, hiresFor } from "../hooks/use-hires-artwork";
 import { pickArtwork, type ViewSettings } from "../lib/view-settings";
 import { GameActions } from "./game-actions";
 
@@ -8,8 +9,8 @@ export interface GameViewProps {
   games: Game[];
   hidden: ReadonlySet<string>;
   isLoading: boolean;
-  /** Downloaded high-resolution artwork, keyed by game id. */
-  hires: ReadonlyMap<string, GameArtwork>;
+  /** Downloaded high-resolution artwork (see hiresFor). */
+  hires: HiresArtMap;
   settings: ViewSettings;
   /** Names of the launcher collections a game is in (shown in the details pane). */
   collectionNames: (gameId: string) => string[];
@@ -35,12 +36,12 @@ export function launcherLabel(game: Game): string {
     .join(" + ");
 }
 
-export function tooltipFor(game: Game): string {
+export function tooltipFor(game: Game, showLauncher: boolean): string {
   const playtime = formatPlaytime(game.playtimeMinutes);
   const size = formatBytes(game.sizeOnDisk);
   return [
     game.title,
-    launcherLabel(game),
+    showLauncher ? launcherLabel(game) : undefined,
     formatLastPlayed(game.lastPlayed),
     playtime && `${playtime} on record`,
     size && `${size} on disk`,
@@ -76,7 +77,7 @@ export function GameGrid(props: GameViewProps) {
                       .join(" · ")
                   : undefined
               }
-              content={{ value: gridContent(game, settings, hires.get(game.id)), tooltip: tooltipFor(game) }}
+              content={{ value: gridContent(game, settings, hiresFor(game, hires)), tooltip: tooltipFor(game, props.showLauncher) }}
               keywords={[game.title, ...game.keywords]}
               actions={
                 <GameActions

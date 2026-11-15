@@ -24,8 +24,21 @@ export interface GameArtwork {
   icon?: string;
 }
 
+/**
+ * The launcher a game id belongs to. Game ids always start with "<GameSource>:" (e.g. "steam:1145350",
+ * "lutris:42-tyrian-2000"); this is the one place that relies on that format, for ids that may no
+ * longer match a scanned game (e.g. stale hidden-game entries).
+ */
+export function sourceOfGameId(id: string): GameSource | undefined {
+  const prefix = id.slice(0, id.indexOf(":"));
+  return (LAUNCHER_PRECEDENCE as readonly string[]).includes(prefix) ? (prefix as GameSource) : undefined;
+}
+
 export interface Game {
-  /** Globally unique and stable, e.g. "steam:1145350". Used for hiding games and as the React key. */
+  /**
+   * Globally unique and stable: "<GameSource>:<launcher-specific id>", e.g. "steam:1145350". Used for
+   * hiding games and as the React key. See sourceOfGameId.
+   */
   id: string;
   source: GameSource;
   title: string;
@@ -40,6 +53,8 @@ export interface Game {
   artwork: GameArtwork;
   /** User-chosen custom art (Steam: userdata/<id>/config/grid). Always wins over downloaded art. */
   customArtwork?: GameArtwork;
+  /** For a merged entry: this launcher's own art, before gaps were filled in from other copies. */
+  ownArtwork?: GameArtwork;
   /** Extra search terms (acronyms, app ids, install dir names). */
   keywords: string[];
   /**

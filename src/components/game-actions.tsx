@@ -47,11 +47,16 @@ export function SettingsAction() {
   );
 }
 
+/** Opens the Launcher Priority view (only offered when several launchers are enabled). */
+export function LauncherPriorityAction(props: { view?: React.ReactNode }) {
+  return props.view ? <Action.Push title="Launcher Priority…" icon={Icon.AppWindowList} target={props.view} /> : null;
+}
+
 export function SettingsActions(props: { onClearCache: () => void; priorityView?: React.ReactNode }) {
   return (
     <>
       <SettingsAction />
-      {props.priorityView && <Action.Push title="Launcher Priority…" icon={Icon.AppWindowList} target={props.priorityView} />}
+      <LauncherPriorityAction view={props.priorityView} />
       <Action title="Clear Artwork Cache…" icon={Icon.Trash} style={Action.Style.Destructive} onAction={props.onClearCache} />
     </>
   );
