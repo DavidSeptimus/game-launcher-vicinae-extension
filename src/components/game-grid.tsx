@@ -1,0 +1,71 @@
+import { Grid, Icon, type Image } from "@vicinae/api";
+import { formatBytes, formatLastPlayed, formatPlaytime } from "../lib/format";
+import type { Game, GameArtwork } from "../lib/games";
+import { pickArtwork, type ViewSettings } from "../lib/view-settings";
+import { GameActions } from "./game-actions";
+
+export interface GameViewProps {
+  games: Game[];
+  hidden: ReadonlySet<string>;
+  isLoading: boolean;
+  /** Downloaded high-resolution artwork, keyed by game id. */
+  hires: ReadonlyMap<string, GameArtwork>;
+  settings: ViewSettings;
+  /** Names of the launcher collections a game is in (shown in the details pane). */
+  collectionNames: (gameId: string) => string[];
+  onToggleHidden: (game: Game) => void;
+  onClearCache: () => void;
+  searchBarAccessory: React.ReactNode;
+  emptyView: React.ReactNode;
+}
+
+function gridContent(game: Game, settings: ViewSettings, hires: GameArtwork | undefined): Image.ImageLike {
+  const art = pickArtwork(game, settings.artwork, hires);
+  if (!art) return Icon.GameController;
+  return { source: art.source, fallback: art.fallback ?? Icon.GameController };
+}
+
+export function tooltipFor(game: Game): string {
+  const playtime = formatPlaytime(game.playtimeMinutes);
+  const size = formatBytes(game.sizeOnDisk);
+  return [game.title, formatLastPlayed(game.lastPlayed), playtime && `${playtime} on record`, size && `${size} on disk`]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export function GameGrid(props: GameViewProps) {
+  const { games, hidden, settings, hires } = props;
+  return (
+    <Grid
+      isLoading={props.isLoading}
+      columns={settings.columns}
+      aspectRatio={settings.aspectRatio}
+      fit={settings.fit === "contain" ? Grid.Fit.Contain : Grid.Fit.Fill}
+      inset={settings.fit === "contain" ? Grid.Inset.Medium : Grid.Inset.Zero}
+      searchBarPlaceholder="Search games…"
+      navigationTitle="Search Games"
+      searchBarAccessory={props.searchBarAccessory}
+    >
+      {games.length === 0 && !props.isLoading
+        ? props.emptyView
+        : games.map((game) => (
+            <Grid.Item
+              key={game.id}
+              id={game.id}
+              title={settings.labels === "none" ? undefined : game.title}
+              subtitle={settings.labels === "full" ? formatLastPlayed(game.lastPlayed) : undefined}
+              content={{ value: gridContent(game, settings, hires.get(game.id)), tooltip: tooltipFor(game) }}
+              keywords={[game.title, ...game.keywords]}
+              actions={
+                <GameActions
+                  game={game}
+                  isHidden={hidden.has(game.id)}
+                  onToggleHidden={props.onToggleHidden}
+                  onClearCache={props.onClearCache}
+                />
+              }
+            />
+          ))}
+    </Grid>
+  );
+}

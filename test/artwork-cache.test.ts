@@ -1,0 +1,221 @@
+import { existsSync, readdirSync, readFileSync, utimesSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { ArtworkCache, cdnUrl, clientIconUrl, forEachLimit } from "../src/lib/artwork-cache";
+import { encodePng } from "../src/lib/image/png";
+import { makeTempDir, writeFile } from "./fixtures/fake-steam";
+import { buildIco } from "./fixtures/ico";
+
+type Routes = Record<string, { status: number; body?: Buffer; type?: string } | Error>;
+
+function fakeFetch(routes: Routes) {
+  const calls: string[] = [];
+  const impl = (async (input: string | URL | Request) => {
+    const url = String(input);
+    calls.push(url);
+    const route = routes[url] ?? { status: 404 };
+    if (route instanceof Error) throw route;
+    return new Response(route.body ?? null, {
+      status: route.status,
+      headers: { "content-type": route.type ?? "image/jpeg" },
+    });
+  }) as typeof fetch;
+  return { impl, calls };
+}
+
+const ok = (body: string) => ({ status: 200, body: Buffer.from(body) });
+const DAY = 24 * 3600 * 1000;
+
+function age(path: string, days: number) {
+  const t = new Date(Date.now() - days * DAY);
+  utimesSync(path, t, t);
+}
+
+describe("ArtworkCache downloads", () => {
+  it("prefers the 2x image", async () => {
+    const dir = makeTempDir();
+    const { impl, calls } = fakeFetch({ [cdnUrl(1, "portrait", "2x")]: ok("cover2x") });
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl });
+
+    const path = await cache.ensure({ appid: 1, kind: "portrait", hasLocal: true });
+    expect(path).toBe(join(dir, "steam/1/portrait@2x.jpg"));
+    expect(readFileSync(path!, "utf8")).toBe("cover2x");
+    expect(calls).toEqual([cdnUrl(1, "portrait", "2x")]);
+    expect(cache.needsFetch({ appid: 1, kind: "portrait", hasLocal: true })).toBe(false);
+  });
+
+  it("never downloads the 1x image when the launcher already has a local copy", async () => {
+    const dir = makeTempDir();
+    const { impl, calls } = fakeFetch({ [cdnUrl(2, "header", "1x")]: ok("header1x") });
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl });
+
+    expect(await cache.ensure({ appid: 2, kind: "header", hasLocal: true })).toBeUndefined();
+    expect(calls).toEqual([cdnUrl(2, "header", "2x")]);
+    // Recorded as missing, so it isn't retried every time.
+    expect(cache.needsFetch({ appid: 2, kind: "header", hasLocal: true })).toBe(false);
+  });
+
+  it("falls back to 1x only when there is no local copy", async () => {
+    const dir = makeTempDir();
+    const { impl, calls } = fakeFetch({ [cdnUrl(3, "portrait", "1x")]: ok("cover1x") });
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl });
+
+    const path = await cache.ensure({ appid: 3, kind: "portrait", hasLocal: false });
+    expect(path).toBe(join(dir, "steam/3/portrait@1x.jpg"));
+    expect(calls).toEqual([cdnUrl(3, "portrait", "2x"), cdnUrl(3, "portrait", "1x")]);
+    // If a local copy shows up later (e.g. after viewing the game in Steam), the cached 1x is ignored.
+    expect(cache.get(3, "portrait", true)).toBeUndefined();
+    expect(cache.get(3, "portrait", false)).toBe(path);
+  });
+
+  it("replaces a cached 1x image once a 2x one is available", async () => {
+    const dir = makeTempDir();
+    const lo = writeFile(join(dir, "steam/4/portrait@1x.jpg"), "old1x");
+    age(lo, 40);
+    const { impl } = fakeFetch({ [cdnUrl(4, "portrait", "2x")]: ok("new2x") });
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl });
+
+    expect(cache.needsFetch({ appid: 4, kind: "portrait" })).toBe(true);
+    expect(await cache.ensure({ appid: 4, kind: "portrait" })).toBe(join(dir, "steam/4/portrait@2x.jpg"));
+    expect(existsSync(lo)).toBe(false);
+  });
+
+  it("remembers 404s for a week, then retries", async () => {
+    const dir = makeTempDir();
+    let now = Date.now();
+    const { impl } = fakeFetch({});
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl, now: () => now });
+    expect(await cache.ensure({ appid: 5, kind: "header" })).toBeUndefined();
+    expect(cache.needsFetch({ appid: 5, kind: "header" })).toBe(false);
+    now += 8 * DAY;
+    expect(cache.needsFetch({ appid: 5, kind: "header" })).toBe(true);
+  });
+
+  it("does not record network errors or 5xx as missing", async () => {
+    const dir = makeTempDir();
+    const { impl } = fakeFetch({
+      [cdnUrl(6, "portrait", "2x")]: new Error("offline"),
+      [cdnUrl(7, "portrait", "2x")]: { status: 503 },
+    });
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl });
+    expect(await cache.ensure({ appid: 6, kind: "portrait" })).toBeUndefined();
+    expect(await cache.ensure({ appid: 7, kind: "portrait" })).toBeUndefined();
+    expect(cache.needsFetch({ appid: 6, kind: "portrait" })).toBe(true);
+    expect(cache.needsFetch({ appid: 7, kind: "portrait" })).toBe(true);
+  });
+
+  it("ignores non-image responses (e.g. an HTML error page)", async () => {
+    const dir = makeTempDir();
+    const { impl } = fakeFetch({ [cdnUrl(8, "portrait", "2x")]: { status: 200, body: Buffer.from("<html>"), type: "text/html" } });
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl });
+    expect(await cache.ensure({ appid: 8, kind: "portrait", hasLocal: true })).toBeUndefined();
+  });
+
+  it("refreshes stale files but keeps them if the refresh finds nothing", async () => {
+    const dir = makeTempDir();
+    const path = writeFile(join(dir, "steam/9/portrait@2x.jpg"), "old");
+    age(path, 40);
+    const { impl } = fakeFetch({});
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl });
+    expect(cache.needsFetch({ appid: 9, kind: "portrait", hasLocal: true })).toBe(true);
+    expect(await cache.ensure({ appid: 9, kind: "portrait", hasLocal: true })).toBe(path);
+    expect(readFileSync(path, "utf8")).toBe("old");
+    expect(cache.needsFetch({ appid: 9, kind: "portrait", hasLocal: true })).toBe(false);
+  });
+
+  it("clears a stale missing marker after a later success", async () => {
+    const dir = makeTempDir();
+    const marker = writeFile(join(dir, "steam/10/portrait.missing"), "0");
+    age(marker, 10);
+    const { impl } = fakeFetch({ [cdnUrl(10, "portrait", "2x")]: ok("x") });
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl });
+    await cache.ensure({ appid: 10, kind: "portrait" });
+    expect(existsSync(marker)).toBe(false);
+  });
+});
+
+describe("ArtworkCache icons", () => {
+  it("extracts a sharp icon from the client .ico, and skips 32px-only icons", async () => {
+    const dir = makeTempDir();
+    const sharp = buildIco([{ size: 32, bgra: [0, 0, 0, 255] }, encodePng(256, 256, Buffer.alloc(256 * 256 * 4))]);
+    const tiny = buildIco([{ size: 32, bgra: [0, 0, 0, 255] }]);
+    const { impl } = fakeFetch({
+      [clientIconUrl(11, "aaa")]: { status: 200, body: sharp, type: "image/x-icon" },
+      [clientIconUrl(12, "bbb")]: { status: 200, body: tiny, type: "image/x-icon" },
+    });
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl });
+
+    const icon = await cache.ensure({ appid: 11, kind: "icon", clientIcon: "aaa", hasLocal: true });
+    expect(icon).toBe(join(dir, "steam/11/icon.png"));
+    expect(readFileSync(icon!).subarray(1, 4).toString()).toBe("PNG");
+
+    expect(await cache.ensure({ appid: 12, kind: "icon", clientIcon: "bbb" })).toBeUndefined();
+    expect(cache.needsFetch({ appid: 12, kind: "icon", clientIcon: "bbb" })).toBe(false);
+    expect(cache.needsFetch({ appid: 13, kind: "icon" })).toBe(false); // no hash, nothing to fetch
+  });
+
+  it("uses Steam's local .ico without touching the network when offline", async () => {
+    const dir = makeTempDir();
+    const localIco = writeFile(join(makeTempDir(), "ccc.ico"), buildIco([{ size: 96, bgra: [1, 1, 1, 255] }]));
+    const { impl, calls } = fakeFetch({});
+    const cache = new ArtworkCache(dir, { allowNetwork: false, fetch: impl });
+    expect(cache.needsFetch({ appid: 14, kind: "portrait" })).toBe(false);
+    expect(await cache.ensure({ appid: 14, kind: "icon", clientIcon: "ccc", localIco })).toBe(join(dir, "steam/14/icon.png"));
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("ArtworkCache maintenance", () => {
+  function populated() {
+    const dir = makeTempDir();
+    writeFile(join(dir, "steam/1/portrait@2x.jpg"), "aaaa");
+    writeFile(join(dir, "steam/1/icon.png"), "bb");
+    writeFile(join(dir, "steam/1/header.missing"), "0");
+    writeFile(join(dir, "steam/1/portrait.jpg"), "old layout");
+    age(writeFile(join(dir, "steam/1/icon.png.123.tmp"), "stale"), 1);
+    writeFile(join(dir, "steam/1/header@2x.jpg.456.tmp"), "in flight");
+    writeFile(join(dir, "steam/2/portrait@2x.jpg"), "uninstalled");
+    writeFile(join(dir, "steam/junk/file"), "x");
+    return { dir, cache: new ArtworkCache(dir, { allowNetwork: false }) };
+  }
+
+  it("prunes uninstalled apps, old-layout files and stale temp files", () => {
+    const { dir, cache } = populated();
+    expect(cache.prune(new Set([1]))).toBe(4);
+    expect(readdirSync(join(dir, "steam"))).toEqual(["1"]);
+    expect(readdirSync(join(dir, "steam/1")).sort()).toEqual([
+      "header.missing",
+      "header@2x.jpg.456.tmp",
+      "icon.png",
+      "portrait@2x.jpg",
+    ]);
+  });
+
+  it("reports usage (excluding markers) and clears everything", () => {
+    const { dir, cache } = populated();
+    const usage = cache.usage();
+    expect(usage.files).toBe(7);
+    expect(usage.bytes).toBe(4 + 2 + 10 + 5 + 9 + 11 + 1);
+    expect(cache.clear()).toEqual(usage);
+    expect(existsSync(join(dir, "steam"))).toBe(false);
+    expect(cache.usage()).toEqual({ files: 0, bytes: 0 });
+    expect(cache.prune(new Set())).toBe(0);
+  });
+});
+
+describe("forEachLimit", () => {
+  it("bounds concurrency and processes every item", async () => {
+    let active = 0;
+    let peak = 0;
+    const seen: number[] = [];
+    await forEachLimit([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 5));
+      seen.push(n);
+      active--;
+    });
+    expect(peak).toBe(3);
+    expect(seen.sort()).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+});
