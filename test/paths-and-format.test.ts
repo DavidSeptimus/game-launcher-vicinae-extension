@@ -131,6 +131,7 @@ describe("emptyStateText", () => {
   const scan = (launchers: LauncherScan[], over: Partial<LibraryScan> = {}): LibraryScan => ({
     games: [],
     launchers,
+    priority: ["steam", "lutris"],
     enabledLaunchers: launchers.map((l) => l.launcher),
     warnings: launchers.flatMap((l) => l.warnings),
     sources: launchers.flatMap((l) => l.sources),
@@ -157,13 +158,13 @@ describe("emptyStateText", () => {
   it("lists each launcher when none was found, and blames a bad folder setting", () => {
     const t = emptyStateText(
       scan([
-        launcher({ launcher: "steam", settingsProblem: "The Steam Directory setting doesn't point at a Steam install: /nope" }),
+        launcher({ launcher: "steam", settingsProblem: "The Steam Folder setting doesn't point at a Steam install: /nope" }),
         launcher({ launcher: "lutris" }),
       ]),
     );
     expect(t.title).toBe("No game launchers found");
     expect(t.description).toBe(
-      "The Steam Directory setting doesn't point at a Steam install: /nope\n" +
+      "The Steam Folder setting doesn't point at a Steam install: /nope\n" +
         "Lutris: not found in the usual native and Flatpak locations.\n\nFix it in Settings (Ctrl+,).",
     );
   });

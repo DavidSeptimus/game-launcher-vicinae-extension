@@ -9,7 +9,7 @@ import {
   showToast,
   Toast,
 } from "@vicinae/api";
-import type { Game } from "../lib/games";
+import { type Game, LAUNCHER_NAMES } from "../lib/games";
 
 async function launch(game: Game): Promise<void> {
   try {
@@ -47,10 +47,11 @@ export function SettingsAction() {
   );
 }
 
-export function SettingsActions(props: { onClearCache: () => void }) {
+export function SettingsActions(props: { onClearCache: () => void; priorityView?: React.ReactNode }) {
   return (
     <>
       <SettingsAction />
+      {props.priorityView && <Action.Push title="Launcher Priority…" icon={Icon.AppWindowList} target={props.priorityView} />}
       <Action title="Clear Artwork Cache…" icon={Icon.Trash} style={Action.Style.Destructive} onAction={props.onClearCache} />
     </>
   );
@@ -60,16 +61,31 @@ export function GameActions(props: {
   game: Game;
   isHidden: boolean;
   onToggleHidden: (game: Game) => void;
-  onClearCache: () => void;
+  /** Settings section (Settings, Launcher Priority, Clear Artwork Cache), rendered by the command. */
+  settingsActions: React.ReactNode;
   /** Extra actions for the current layout (e.g. toggling the detail pane). */
   layoutActions?: React.ReactNode;
 }) {
-  const { game, isHidden, onToggleHidden, onClearCache, layoutActions } = props;
+  const { game, isHidden, onToggleHidden, settingsActions, layoutActions } = props;
   const appid = game.steam?.appid;
+  const alternates = game.alternates ?? [];
   return (
     <ActionPanel title={game.title}>
       <ActionPanel.Section>
-        <Action title="Launch Game" icon={Icon.Play} onAction={() => launch(game)} />
+        <Action
+          title={alternates.length ? `Launch with ${LAUNCHER_NAMES[game.source]}` : "Launch Game"}
+          icon={Icon.Play}
+          onAction={() => launch(game)}
+        />
+        {alternates.map((copy, i) => (
+          <Action
+            key={copy.id}
+            title={`Launch with ${LAUNCHER_NAMES[copy.source]}`}
+            icon={Icon.Play}
+            shortcut={i === 0 ? { modifiers: ["ctrl"], key: "return" } : undefined}
+            onAction={() => launch(copy)}
+          />
+        ))}
         {appid !== undefined && (
           <Action
             title="Show in Steam Library"
@@ -111,7 +127,7 @@ export function GameActions(props: {
           shortcut={{ modifiers: ["ctrl"], key: "h" }}
           onAction={() => onToggleHidden(game)}
         />
-        <SettingsActions onClearCache={onClearCache} />
+        {settingsActions}
       </ActionPanel.Section>
     </ActionPanel>
   );

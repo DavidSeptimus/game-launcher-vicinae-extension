@@ -27,7 +27,7 @@ export function isLutrisDataDir(dir: string): boolean {
  * the same layout under its sandboxed XDG data dir. Icons live in the XDG data
  * dir's hicolor theme (see lutris/settings.py ICON_PATH).
  *
- * A configured data dir replaces detection, like the Steam Directory setting.
+ * A configured data dir replaces detection, like the Steam Folder setting.
  */
 export function findLutrisInstalls(options: { override?: string; home?: string } = {}): LutrisInstall[] {
   const home = options.home ?? homedir();

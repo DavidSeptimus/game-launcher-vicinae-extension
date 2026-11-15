@@ -9,8 +9,10 @@ by Lutris); Heroic is planned.
 - **Search Games** command: a cover-art grid of installed games, most recently played first. The library is rescanned
   every time the command opens (Vicinae unloads it on close), so there's no manual refresh.
   Alias it to `gl` in Vicinae for Flow-style muscle memory.
-- Settings (Ctrl+, from any game): grid or list (optionally with a details pane, Ctrl+D to toggle),
-  grid artwork (cover, banner, hero, logo), games per row (auto or 2–8), and grid labels.
+- Settings (Ctrl+, from any game) come in two groups. **Preferences** (library): which launchers to include,
+  merging duplicates, Steam/Lutris folder overrides, showing Steam tools. **Commands › Search Games** (display):
+  grid or list (optionally with a details pane, Ctrl+D to toggle), grid artwork (cover, banner, hero, logo), games
+  per row (auto or 2–8), grid labels, and downloading high-quality artwork.
 - Matches acronyms and App IDs as well as titles (`kcd` → *Kingdom Come: Deliverance II*).
 - Hides Proton, the Steam Linux Runtime, and other Steam tools (toggle in preferences).
 - Actions: launch, show in Steam library, open install folder, open store page, view on ProtonDB, copy App ID,
@@ -20,20 +22,25 @@ by Lutris); Heroic is planned.
 - The dropdown has a **Steam** section with Favorites and your manual collections (those with installed games).
   Dynamic (rule-based) collections aren't supported yet.
 - Works with native, Flatpak (`com.valvesoftware.Steam`) and Snap Steam installs, and every Steam library folder.
-  The Steam Directory setting replaces auto-detection with a single install; if it isn't a Steam folder, the empty
+  The Steam Folder setting replaces auto-detection with a single install; if it isn't a Steam folder, the empty
   state says so.
 - "Clear Artwork Cache…" in every game's action menu purges downloaded art (with confirmation).
 - Sharp artwork on HiDPI screens: Steam's local cache only holds 1x art (300x450 covers, 32px icons), so by default
   the extension downloads 2x covers/banners from Steam's CDN and extracts the largest image from each game's client
-  `.ico`, caching them under Vicinae's support directory (many games only ship a 32px icon; those keep it). Set "Artwork Source" to local-only to never download. Custom grid art from `userdata/*/config/grid` always
+  `.ico`, caching them under Vicinae's support directory (many games only ship a 32px icon; those keep it). Turn off "Download High-Quality Artwork" to never download. Custom grid art from `userdata/*/config/grid` always
   wins and is never replaced by downloads.
 
 ## Multiple launchers
 
 - Each launcher can be turned on or off in Settings (Ctrl+,). A disabled launcher isn't scanned, and its cached data
   and hidden-game choices are kept.
-- **Duplicates**: a game installed through several launchers (e.g. a Steam game Lutris also manages) is matched by
-  store id and shown once, from the highest-precedence launcher: **Steam, then Lutris**. This can be turned off.
+- **One entry per game**: a game installed through several launchers (e.g. a Steam game Lutris also manages) is
+  matched by store id and shown once. Enter opens it with your preferred launcher; "Launch with …" actions (Ctrl+Enter
+  for the first) open it with the others. Last played and playtime take the latest/largest across copies, missing
+  artwork is filled in from other copies, and Steam actions stay available even when another launcher is preferred.
+  Hiding an entry hides every copy. This can be turned off to list each copy separately.
+- **Launcher Priority…** (in the action panel) reorders launchers with Move Up / Move Down (Ctrl+Shift+↑/↓); the
+  default is Steam, then Lutris. Stored in `<support>/launcher-priority.json`.
 - With games from more than one launcher, each game is labelled with its launcher, and the dropdown gains per-launcher
   filters plus a collections section per launcher.
 
@@ -50,7 +57,7 @@ by Lutris); Heroic is planned.
 ## How it reads Steam
 
 Everything is read locally from the Steam directory. The only network traffic is artwork downloads from
-`cdn.cloudflare.steamstatic.com` (App ID + asset name only), which the "Artwork Source" preference can turn off.
+`cdn.cloudflare.steamstatic.com` (App ID + asset name only), which the "Download High-Quality Artwork" setting can turn off.
 
 | Data | Source |
 | --- | --- |
@@ -95,7 +102,9 @@ src/lib/artwork-cache.ts  hi-res artwork download cache (download, refresh, prun
 src/lib/artwork-requests.ts  which art the current layout needs, per game
 src/lib/image/            .ico extraction and a minimal PNG encoder (no native deps)
 src/hooks/                useHiresArtwork: fills the cache in the background, re-renders as art arrives
-src/lib/library.ts        runs enabled launchers, removes duplicates by precedence, merges into one sorted list
+src/lib/library.ts        runs enabled launchers, merges copies of the same game by priority, one sorted list
+src/lib/launcher-priority.ts  user launcher order (normalize, load/save, move)
+src/components/launcher-priority.tsx  the reorderable Launcher Priority view
 src/lib/steam/scan.ts     Steam launcher integration (all installs merged)
 src/lib/lutris/           Lutris launcher integration (paths, read-only SQLite, scan)
 src/lib/game-views.ts     dropdown views: installed / hidden / collections

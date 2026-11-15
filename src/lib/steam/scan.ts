@@ -5,7 +5,7 @@ import { scanSteamInstall } from "./library";
 import { findSteamInstalls } from "./paths";
 
 export interface SteamScanOptions {
-  /** Steam Directory preference: when set, only this install is used. */
+  /** Steam Folder preference: when set, only this install is used. */
   steamPath?: string;
   includeTools?: boolean;
   /** Where to persist appinfo.vdf lookups between runs. Without it, appinfo.vdf is read on every scan. */
@@ -36,7 +36,7 @@ export function scanSteam(options: SteamScanOptions = {}): SteamLauncherScan {
   if (installs.length === 0) complete = false;
   const settingsProblem =
     options.steamPath?.trim() && installs.length === 0
-      ? `The Steam Directory setting doesn't point at a Steam install (no steamapps folder): ${options.steamPath.trim()}`
+      ? `The Steam Folder setting doesn't point at a Steam install (no steamapps folder): ${options.steamPath.trim()}`
       : undefined;
 
   for (const install of installs) {

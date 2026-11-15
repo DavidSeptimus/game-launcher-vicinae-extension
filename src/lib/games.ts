@@ -8,8 +8,8 @@ export type GameSource = "steam" | "lutris";
 export const LAUNCHER_NAMES: Record<GameSource, string> = { steam: "Steam", lutris: "Lutris" };
 
 /**
- * When the same game is installed through several launchers and duplicates are
- * hidden, the copy from the launcher listed first wins.
+ * Default launcher priority: when the same game is installed through several
+ * launchers, the one listed first opens it. Users can reorder this.
  */
 export const LAUNCHER_PRECEDENCE: readonly GameSource[] = ["steam", "lutris"];
 
@@ -57,6 +57,11 @@ export interface Game {
     /** Local copy of that .ico, if Steam has cached one (steam/games/<hash>.ico). */
     localIco?: string;
   };
+  /**
+   * The same game in other launchers, highest priority first, when copies are merged into one
+   * entry. This entry's own fields (source, launchUri, id) are the preferred launcher's.
+   */
+  alternates?: Game[];
   lutris?: {
     id: number;
     slug: string;
@@ -97,6 +102,16 @@ export interface GameCollection {
   kind: "favorites" | "user";
   /** Game ids (e.g. "steam:1145350"); may include games that aren't installed. */
   gameIds: Set<string>;
+}
+
+/** Every copy of a (possibly merged) game: the preferred one first. */
+export function copiesOf(game: Game): Game[] {
+  return [game, ...(game.alternates ?? [])];
+}
+
+/** Every launcher a (possibly merged) game is installed through, preferred first. */
+export function launchersOf(game: Game): GameSource[] {
+  return copiesOf(game).map((c) => c.source);
 }
 
 /** Most recently played first, then alphabetical. */

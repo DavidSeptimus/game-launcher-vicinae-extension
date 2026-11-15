@@ -1,7 +1,7 @@
 /** The dropdown views (installed / hidden / launcher collections). Pure, so it can be unit-tested. */
-import { type Game, type GameCollection, type GameSource, LAUNCHER_PRECEDENCE } from "./games";
+import { copiesOf, type Game, type GameCollection, type GameSource, launchersOf } from "./games";
 import type { LibraryScan } from "./library";
-import { type HiddenState, isHidden } from "./visibility";
+import { type HiddenState, isAnyHidden } from "./visibility";
 
 export type GameFilter = "visible" | "hidden" | `launcher:${GameSource}` | `collection:${string}`;
 
@@ -21,7 +21,8 @@ export interface CollectionOption {
 
 /** Ids of every hidden installed game (ours and the launcher's, minus "shown" overrides). */
 export function hiddenGameIds(scan: LibraryScan, state: HiddenState): Set<string> {
-  return new Set(scan.games.filter((g) => isHidden(g.id, state, scan.hiddenInLauncher)).map((g) => g.id));
+  const ids = (g: Game) => copiesOf(g).map((c) => c.id);
+  return new Set(scan.games.filter((g) => isAnyHidden(ids(g), state, scan.hiddenInLauncher)).map((g) => g.id));
 }
 
 /** Collections worth offering: those with at least one visible installed game. */
@@ -34,13 +35,18 @@ export function collectionOptions(scan: LibraryScan, hidden: ReadonlySet<string>
   return options;
 }
 
-/** Launchers with visible games, in precedence order. Worth a filter only when there are two or more. */
+/**
+ * Launchers with visible games, in priority order. A merged game counts for every launcher it's
+ * installed through. Worth offering as filters only when there are two or more.
+ */
 export function launcherOptions(scan: LibraryScan, hidden: ReadonlySet<string>): LauncherOption[] {
-  return LAUNCHER_PRECEDENCE.map((launcher) => ({
-    value: `launcher:${launcher}` as const,
-    launcher,
-    count: scan.games.filter((g) => g.source === launcher && !hidden.has(g.id)).length,
-  })).filter((o) => o.count > 0);
+  return scan.priority
+    .map((launcher) => ({
+      value: `launcher:${launcher}` as const,
+      launcher,
+      count: scan.games.filter((g) => launchersOf(g).includes(launcher) && !hidden.has(g.id)).length,
+    }))
+    .filter((o) => o.count > 0);
 }
 
 /**
@@ -61,7 +67,10 @@ export function applyFilter(scan: LibraryScan, hidden: ReadonlySet<string>, filt
   if (filter === "hidden") return scan.games.filter((g) => hidden.has(g.id));
   const visible = scan.games.filter((g) => !hidden.has(g.id));
   if (filter === "visible") return visible;
-  if (filter.startsWith("launcher:")) return visible.filter((g) => `launcher:${g.source}` === filter);
+  if (filter.startsWith("launcher:")) {
+    const launcher = filter.slice("launcher:".length);
+    return visible.filter((g) => launchersOf(g).includes(launcher as GameSource));
+  }
   const id = filter.slice("collection:".length);
   const collection = scan.collections.find((c) => c.id === id);
   return collection ? visible.filter((g) => collection.gameIds.has(g.id)) : visible;

@@ -1,7 +1,8 @@
 import { ActionPanel, environment, getPreferenceValues, Grid, Icon, List, showToast, Toast } from "@vicinae/api";
 import { join } from "node:path";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { SettingsAction } from "./components/game-actions";
+import { SettingsAction, SettingsActions } from "./components/game-actions";
+import { LauncherPriority } from "./components/launcher-priority";
 import { GameGrid, type GameViewProps } from "./components/game-grid";
 import { GameList } from "./components/game-list";
 import { useHiresArtwork } from "./hooks/use-hires-artwork";
@@ -15,8 +16,9 @@ import {
   launcherOptions,
   resolveFilter,
 } from "./lib/game-views";
-import { type Game, LAUNCHER_NAMES, LAUNCHER_PRECEDENCE } from "./lib/games";
+import { copiesOf, type Game, type GameSource, LAUNCHER_NAMES, LAUNCHER_PRECEDENCE } from "./lib/games";
 import { loadHiddenState, saveHiddenState } from "./lib/hidden";
+import { loadPriority, savePriority } from "./lib/launcher-priority";
 import { emptyStateText, type LibraryScan, scanLibrary } from "./lib/library";
 import { resolveViewSettings } from "./lib/view-settings";
 import { emptyHiddenState, type HiddenState, pruneShown, toggleHidden } from "./lib/visibility";
@@ -34,15 +36,19 @@ export default function SearchGames() {
   // If the saved hidden lists couldn't be loaded, never save: that would overwrite them with an empty list.
   const [hiddenLoadFailed, setHiddenLoadFailed] = useState(false);
   const [filter, setFilter] = useState<GameFilter>("visible");
+  const priorityPath = join(environment.supportPath, "launcher-priority.json");
+  const [priority, setPriority] = useState<GameSource[]>(() => loadPriority(priorityPath));
+  const enabledLaunchers = useMemo(
+    () => LAUNCHER_PRECEDENCE.filter((l) => (l === "steam" ? prefs.enableSteam !== false : prefs.enableLutris !== false)),
+    [prefs.enableSteam, prefs.enableLutris],
+  );
 
   // Vicinae unloads the command when its window closes, so every open starts with a fresh scan
   // (and changing a preference re-runs it). There's no manual refresh: nothing to refresh between opens.
   const runScan = useCallback(() => {
-    const enabledLaunchers = LAUNCHER_PRECEDENCE.filter((l) =>
-      l === "steam" ? prefs.enableSteam !== false : prefs.enableLutris !== false,
-    );
     const result = scanLibrary({
       enabledLaunchers,
+      launcherPriority: priority,
       steamPath: prefs.steamPath,
       includeNonGames: prefs.includeNonGames,
       lutrisPath: prefs.lutrisPath,
@@ -52,7 +58,23 @@ export default function SearchGames() {
     // A bad launcher folder setting means nothing is found there; the empty state explains it (no toast needed).
     for (const w of result.warnings) console.warn(w);
     setScan(result);
-  }, [prefs.enableSteam, prefs.enableLutris, prefs.steamPath, prefs.includeNonGames, prefs.lutrisPath, prefs.hideDuplicates]);
+  }, [enabledLaunchers, priority, prefs.steamPath, prefs.includeNonGames, prefs.lutrisPath, prefs.hideDuplicates]);
+
+  const onPriorityChange = useCallback(
+    (order: GameSource[]) => {
+      setPriority(order); // rescans via runScan's dependencies
+      try {
+        savePriority(priorityPath, order);
+      } catch (err) {
+        void showToast({
+          style: Toast.Style.Failure,
+          title: "Couldn't save launcher priority",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [priorityPath],
+  );
 
   useEffect(() => {
     // Defer so the loading state renders before the synchronous filesystem scan.
@@ -94,7 +116,11 @@ export default function SearchGames() {
         });
         return;
       }
-      const result = toggleHidden(game.id, hiddenState, scan.hiddenInLauncher);
+      const result = toggleHidden(
+        copiesOf(game).map((c) => c.id),
+        hiddenState,
+        scan.hiddenInLauncher,
+      );
       setHiddenState(result.state);
       try {
         await saveHiddenState(result.state);
@@ -111,7 +137,9 @@ export default function SearchGames() {
       await showToast({
         style: Toast.Style.Success,
         title: result.nowHidden ? `Hid ${game.title}` : `Unhid ${game.title}`,
-        message: result.stillHiddenInLauncher ? `Shown here, but still hidden in ${LAUNCHER_NAMES[game.source]}` : undefined,
+        message: result.stillHiddenInLauncher.length
+          ? `Shown here, but still hidden in ${[...new Set(copiesOf(game).filter((c) => result.stillHiddenInLauncher.includes(c.id)).map((c) => LAUNCHER_NAMES[c.source]))].join(" and ")}`
+          : undefined,
       });
     },
     [scan, hiddenState, hiddenLoadFailed],
@@ -132,7 +160,7 @@ export default function SearchGames() {
   );
   const collectionNames = useCallback((gameId: string) => (scan ? collectionNamesFor(scan, gameId) : []), [scan]);
 
-  const artworkSource = prefs.artworkSource === "local" ? "local" : "hires";
+  const artworkSource = prefs.downloadArtwork === false ? "local" : "hires";
   const { art: hires, usage, clearCache } = useHiresArtwork(scan, settings, artworkSource);
   const onClearCache = useCallback(() => {
     void confirmAndClearArtworkCache(usage(), clearCache, { redownload: artworkSource === "hires" });
@@ -162,7 +190,21 @@ export default function SearchGames() {
     collectionNames,
     showLauncher: multiLauncher,
     onToggleHidden,
-    onClearCache,
+    settingsActions: (
+      <SettingsActions
+        onClearCache={onClearCache}
+        priorityView={
+          enabledLaunchers.length > 1 ? (
+            <LauncherPriority
+              initial={priority}
+              enabled={enabledLaunchers}
+              duplicatesMerged={prefs.hideDuplicates !== false}
+              onChange={onPriorityChange}
+            />
+          ) : undefined
+        }
+      />
+    ),
     searchBarAccessory: (
       <Dropdown tooltip="Show" value={activeFilter} onChange={(v) => setFilter(v as GameFilter)}>
         <Dropdown.Item title="Installed Games" value="visible" icon={Icon.GameController} />
@@ -176,7 +218,7 @@ export default function SearchGames() {
             />
           ))}
         <Dropdown.Item title={`Hidden Games (${hidden.size})`} value="hidden" icon={Icon.EyeDisabled} />
-        {LAUNCHER_PRECEDENCE.map((launcher) => {
+        {priority.map((launcher) => {
           const own = collections.filter((o) => o.collection.source === launcher);
           return own.length === 0 ? null : (
             <Dropdown.Section key={launcher} title={LAUNCHER_NAMES[launcher]}>

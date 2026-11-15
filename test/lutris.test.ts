@@ -1,8 +1,9 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { applyFilter, collectionOptions, launcherOptions, resolveFilter } from "../src/lib/game-views";
-import type { Game } from "../src/lib/games";
-import { dedupeByPrecedence, scanLibrary } from "../src/lib/library";
+import { copiesOf, type Game, launchersOf } from "../src/lib/games";
+import { mergeByPriority, mergeCopies, scanLibrary } from "../src/lib/library";
+import { isDefaultPriority, loadPriority, moveLauncher, normalizePriority, savePriority } from "../src/lib/launcher-priority";
 import { findLutrisInstalls } from "../src/lib/lutris/paths";
 import { scanLutris, steamAppIdFromConfig, storeIdsFor } from "../src/lib/lutris/scan";
 import { manifest, makeTempDir, writeFile } from "./fixtures/fake-steam";
@@ -107,10 +108,10 @@ describe("scanLutris", () => {
     expect(result.warnings[0]).toMatch(/^Couldn't read Lutris's game database/);
   });
 
-  it("explains a bad Lutris Directory setting", () => {
+  it("explains a bad Lutris Folder setting", () => {
     const result = scanLutris({ home: makeTempDir(), lutrisPath: "/nope" });
     expect(result.found).toBe(false);
-    expect(result.settingsProblem).toMatch(/Lutris Directory setting doesn't point at a Lutris data folder.*\/nope$/);
+    expect(result.settingsProblem).toMatch(/Lutris Folder setting doesn't point at a Lutris data folder.*\/nope$/);
   });
 
   it("reads the Steam app id from configs of Steam-runner games added without a service", () => {
@@ -171,13 +172,26 @@ describe("Steam + Lutris", () => {
     return home;
   }
 
-  it("shows a game in several launchers once, from the higher-precedence launcher", () => {
+  it("shows a game in several launchers as one entry, opened with the preferred launcher", () => {
     const scan = scanLibrary({ home: bothLaunchers() });
     expect(scan.games.map((g) => g.id).sort()).toEqual(["lutris:1", "steam:1145350", "steam:1527950"]);
     expect(scan.duplicatesHidden).toBe(2);
+    const wartales = scan.games.find((g) => g.id === "steam:1527950")!;
+    expect(wartales.alternates?.map((a) => [a.id, a.launchUri])).toEqual([["lutris:3", "lutris:rungameid/3"]]);
     // The Lutris favorite carries over to the Steam copy that's shown.
     const favorites = scan.collections.find((c) => c.id === "lutris:favorite");
     expect(favorites?.gameIds).toEqual(new Set(["steam:1145350"]));
+  });
+
+  it("follows a custom launcher priority", () => {
+    const scan = scanLibrary({ home: bothLaunchers(), launcherPriority: ["lutris", "steam"] });
+    expect(scan.priority).toEqual(["lutris", "steam"]);
+    expect(scan.games.map((g) => g.id).sort()).toEqual(["lutris:1", "lutris:2", "lutris:3"]);
+    const wartales = scan.games.find((g) => g.id === "lutris:3")!;
+    expect(wartales.launchUri).toBe("lutris:rungameid/3");
+    expect(wartales.alternates?.map((a) => a.id)).toEqual(["steam:1527950"]);
+    expect(wartales.steam?.appid).toBe(1527950); // Steam actions and hi-res art still available
+    expect(scan.launchers.map((l) => l.launcher)).toEqual(["lutris", "steam"]);
   });
 
   it("shows every copy when duplicate hiding is off", () => {
@@ -196,11 +210,16 @@ describe("Steam + Lutris", () => {
     const scan = scanLibrary({ home: bothLaunchers() });
     const hidden = new Set<string>();
     const launchers = launcherOptions(scan, hidden);
+    // Merged games count for every launcher they're installed through.
     expect(launchers.map((o) => [o.launcher, o.count])).toEqual([
       ["steam", 2],
-      ["lutris", 1],
+      ["lutris", 3],
     ]);
-    expect(applyFilter(scan, hidden, "launcher:lutris").map((g) => g.id)).toEqual(["lutris:1"]);
+    expect(applyFilter(scan, hidden, "launcher:lutris").map((g) => g.id).sort()).toEqual([
+      "lutris:1",
+      "steam:1145350",
+      "steam:1527950",
+    ]);
     expect(collectionOptions(scan, hidden).map((o) => [o.collection.source, o.collection.name, o.count])).toEqual([
       ["lutris", "Favorites", 1],
     ]);
@@ -209,28 +228,112 @@ describe("Steam + Lutris", () => {
   });
 });
 
-describe("dedupeByPrecedence", () => {
-  const g = (id: string, source: Game["source"], storeIds: string[]) => ({ id, source, storeIds }) as Game;
+describe("mergeByPriority", () => {
+  const g = (id: string, source: Game["source"], storeIds: string[], extra: Partial<Game> = {}) =>
+    ({ id, source, storeIds, title: id, keywords: [id], lastPlayed: 0, artwork: {}, ...extra }) as Game;
 
-  it("keeps the first launcher in precedence order, regardless of input order", () => {
-    const { games, aliases } = dedupeByPrecedence([g("lutris:2", "lutris", ["steam:10"]), g("steam:10", "steam", ["steam:10"])]);
+  it("keeps the highest-priority copy as the entry and the others as alternates, regardless of input order", () => {
+    const { games, aliases } = mergeByPriority([g("lutris:2", "lutris", ["steam:10"]), g("steam:10", "steam", ["steam:10"])]);
     expect(games.map((x) => x.id)).toEqual(["steam:10"]);
+    expect(games[0]?.alternates?.map((x) => x.id)).toEqual(["lutris:2"]);
     expect(aliases).toEqual(new Map([["lutris:2", "steam:10"]]));
   });
 
   it("matches on any shared store id, and never merges games without one", () => {
-    const { games } = dedupeByPrecedence([
+    const { games } = mergeByPriority([
       g("lutris:1", "lutris", []),
       g("lutris:2", "lutris", []),
       g("lutris:3", "lutris", ["gog:5"]),
       g("lutris:4", "lutris", ["gog:5"]),
     ]);
     expect(games.map((x) => x.id)).toEqual(["lutris:1", "lutris:2", "lutris:3"]);
+    expect(games[2]?.alternates?.map((x) => x.id)).toEqual(["lutris:4"]);
+    expect(games[0]?.alternates).toBeUndefined();
   });
 
-  it("respects a custom precedence", () => {
-    const { games } = dedupeByPrecedence([g("steam:10", "steam", ["steam:10"]), g("lutris:2", "lutris", ["steam:10"])], ["lutris", "steam"]);
+  it("respects a custom priority", () => {
+    const { games } = mergeByPriority([g("steam:10", "steam", ["steam:10"]), g("lutris:2", "lutris", ["steam:10"])], ["lutris", "steam"]);
     expect(games.map((x) => x.id)).toEqual(["lutris:2"]);
+    expect(games[0]?.alternates?.map((x) => x.id)).toEqual(["steam:10"]);
   });
 });
 
+describe("mergeCopies", () => {
+  const steam = {
+    id: "steam:10",
+    source: "steam",
+    title: "Game",
+    launchUri: "steam://rungameid/10",
+    installDir: "/steam/common/Game",
+    sizeOnDisk: 5,
+    lastPlayed: 100,
+    playtimeMinutes: 600,
+    artwork: { portrait: "/steam/p.jpg", hero: "/steam/hero.jpg" },
+    customArtwork: { portrait: "/steam/grid/10p.png" },
+    keywords: ["g", "10"],
+    storeIds: ["steam:10"],
+    steam: { appid: 10, isTool: false },
+  } as Game;
+  const lutris = {
+    id: "lutris:2",
+    source: "lutris",
+    title: "Game",
+    launchUri: "lutris:rungameid/2",
+    lastPlayed: 300,
+    playtimeMinutes: 30,
+    artwork: { portrait: "/lutris/cover.jpg", header: "/lutris/banner.jpg" },
+    keywords: ["g", "game"],
+    storeIds: ["steam:10"],
+    lutris: { id: 2, slug: "game", runner: "steam" },
+  } as Game;
+
+  it("opens with the preferred launcher and fills gaps from the other copies", () => {
+    const merged = mergeCopies(lutris, [steam]);
+    expect(merged).toMatchObject({
+      id: "lutris:2",
+      source: "lutris",
+      launchUri: "lutris:rungameid/2",
+      lastPlayed: 300, // most recent across copies
+      playtimeMinutes: 600, // largest, not summed
+      installDir: "/steam/common/Game", // Lutris had none
+      sizeOnDisk: 5,
+      artwork: { portrait: "/lutris/cover.jpg", header: "/lutris/banner.jpg", hero: "/steam/hero.jpg" },
+      customArtwork: { portrait: "/steam/grid/10p.png" },
+      storeIds: ["steam:10"],
+      steam: { appid: 10, isTool: false }, // keeps Steam actions and hi-res art available
+      lutris: { id: 2, slug: "game", runner: "steam" },
+    });
+    expect(merged.keywords).toEqual(["g", "game", "10"]);
+    expect(merged.alternates).toEqual([steam]);
+    expect(copiesOf(merged).map((c) => c.launchUri)).toEqual(["lutris:rungameid/2", "steam://rungameid/10"]);
+    expect(launchersOf(merged)).toEqual(["lutris", "steam"]);
+  });
+
+  it("leaves a game with no other copies untouched", () => {
+    expect(mergeCopies(steam, [])).toBe(steam);
+  });
+});
+
+describe("launcher priority storage", () => {
+  it("normalizes unknown, repeated and missing launchers", () => {
+    expect(normalizePriority(["lutris", "heroic", "lutris"])).toEqual(["lutris", "steam"]);
+    expect(normalizePriority("nonsense")).toEqual(["steam", "lutris"]);
+  });
+
+  it("saves, loads, and falls back to the default", () => {
+    const path = join(makeTempDir(), "nested/launcher-priority.json");
+    expect(loadPriority(path)).toEqual(["steam", "lutris"]);
+    savePriority(path, ["lutris", "steam"]);
+    expect(loadPriority(path)).toEqual(["lutris", "steam"]);
+    writeFile(path, "{corrupt");
+    expect(loadPriority(path)).toEqual(["steam", "lutris"]);
+  });
+
+  it("moves launchers within bounds", () => {
+    expect(moveLauncher(["steam", "lutris"], "lutris", -1)).toEqual(["lutris", "steam"]);
+    expect(moveLauncher(["steam", "lutris"], "steam", -1)).toEqual(["steam", "lutris"]);
+    expect(moveLauncher(["steam", "lutris"], "lutris", 1)).toEqual(["steam", "lutris"]);
+    expect(isDefaultPriority(["steam", "lutris"])).toBe(true);
+    expect(isDefaultPriority(["lutris", "steam"])).toBe(false);
+  });
+});

@@ -23,8 +23,8 @@ export async function confirmAndClearArtworkCache(
   const confirmed = await confirmAlert({
     title: "Clear downloaded artwork?",
     message:
-      `This deletes the high-resolution artwork and icons downloaded from Steam (${describeUsage(usage)}). ` +
-      "Steam's own artwork and your custom artwork are not touched." +
+      `This deletes the high-quality artwork and icons this extension downloaded (${describeUsage(usage)}). ` +
+      "Launchers' own artwork and your custom artwork are not touched." +
       (options.redownload ? " Artwork for the current view will be downloaded again." : ""),
     primaryAction: { title: "Clear Cache", style: Alert.ActionStyle.Destructive },
   });

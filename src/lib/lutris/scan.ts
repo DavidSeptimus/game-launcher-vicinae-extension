@@ -14,7 +14,7 @@ import { findLutrisInstalls, type LutrisInstall } from "./paths";
 import { openReadOnly } from "./sqlite";
 
 export interface LutrisScanOptions {
-  /** Lutris data dir preference (the folder containing pga.db): when set, only it is used. */
+  /** Lutris Folder preference (the folder containing pga.db): when set, only it is used. */
   lutrisPath?: string;
   /** Home directory to auto-detect installs in (tests). */
   home?: string;
@@ -165,7 +165,7 @@ export function scanLutris(options: LutrisScanOptions = {}): LutrisLauncherScan 
     warnings: [],
     settingsProblem:
       options.lutrisPath?.trim() && installs.length === 0
-        ? `The Lutris Directory setting doesn't point at a Lutris data folder (no pga.db): ${options.lutrisPath.trim()}`
+        ? `The Lutris Folder setting doesn't point at a Lutris data folder (no pga.db): ${options.lutrisPath.trim()}`
         : undefined,
   };
 

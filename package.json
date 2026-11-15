@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
   "name": "game-launcher",
   "title": "Game Launcher",
-  "description": "Search and launch your installed Linux games (Steam, with more launchers to come)",
+  "description": "Search and launch your installed games from Steam and Lutris.",
   "categories": [
     "Applications",
     "Fun"
@@ -10,6 +10,7 @@
   "keywords": [
     "games",
     "steam",
+    "lutris",
     "launcher",
     "proton"
   ],
@@ -24,58 +25,104 @@
       "name": "search-games",
       "title": "Search Games",
       "subtitle": "Game Launcher",
-      "description": "Search your installed games and launch them, most recently played first",
+      "description": "Search your installed games and launch them, most recently played first.",
       "mode": "view",
       "keywords": [
         "gl",
         "play",
         "launch",
-        "steam"
+        "steam",
+        "lutris"
       ],
       "preferences": [
         {
           "name": "layout",
           "title": "Layout",
-          "description": "Show games as an artwork grid or a compact list.",
+          "description": "Show games as an artwork grid or a list.",
           "type": "dropdown",
           "required": false,
           "default": "grid",
           "data": [
-            { "title": "Grid", "value": "grid" },
-            { "title": "List", "value": "list" },
-            { "title": "List with Details", "value": "list-detail" }
+            {
+              "title": "Grid",
+              "value": "grid"
+            },
+            {
+              "title": "List",
+              "value": "list"
+            },
+            {
+              "title": "List with Details",
+              "value": "list-detail"
+            }
           ]
         },
         {
           "name": "artwork",
           "title": "Grid Artwork",
-          "description": "Which Steam artwork to show in the grid.",
+          "description": "Which artwork the grid shows.",
           "type": "dropdown",
           "required": false,
           "default": "cover",
           "data": [
-            { "title": "Cover (portrait)", "value": "cover" },
-            { "title": "Banner (store header)", "value": "banner" },
-            { "title": "Hero (wide background)", "value": "hero" },
-            { "title": "Logo", "value": "logo" }
+            {
+              "title": "Cover",
+              "value": "cover"
+            },
+            {
+              "title": "Banner",
+              "value": "banner"
+            },
+            {
+              "title": "Hero",
+              "value": "hero"
+            },
+            {
+              "title": "Logo",
+              "value": "logo"
+            }
           ]
         },
         {
           "name": "gridSize",
-          "title": "Grid Size",
-          "description": "Games per row. Auto picks a size that suits the artwork.",
+          "title": "Games per Row",
+          "description": "How many games fit in a grid row. Auto picks a size that suits the artwork.",
           "type": "dropdown",
           "required": false,
           "default": "auto",
           "data": [
-            { "title": "Auto", "value": "auto" },
-            { "title": "2 per row (huge)", "value": "2" },
-            { "title": "3 per row", "value": "3" },
-            { "title": "4 per row", "value": "4" },
-            { "title": "5 per row", "value": "5" },
-            { "title": "6 per row", "value": "6" },
-            { "title": "7 per row", "value": "7" },
-            { "title": "8 per row (compact)", "value": "8" }
+            {
+              "title": "Auto",
+              "value": "auto"
+            },
+            {
+              "title": "2",
+              "value": "2"
+            },
+            {
+              "title": "3",
+              "value": "3"
+            },
+            {
+              "title": "4",
+              "value": "4"
+            },
+            {
+              "title": "5",
+              "value": "5"
+            },
+            {
+              "title": "6",
+              "value": "6"
+            },
+            {
+              "title": "7",
+              "value": "7"
+            },
+            {
+              "title": "8",
+              "value": "8"
+            }
           ]
         },
         {
@@ -86,10 +133,28 @@
           "required": false,
           "default": "full",
           "data": [
-            { "title": "Title and last played", "value": "full" },
-            { "title": "Title only", "value": "title" },
-            { "title": "None", "value": "none" }
+            {
+              "title": "Title and Last Played",
+              "value": "full"
+            },
+            {
+              "title": "Title Only",
+              "value": "title"
+            },
+            {
+              "title": "None",
+              "value": "none"
+            }
           ]
+        },
+        {
+          "name": "downloadArtwork",
+          "title": "Download High-Quality Artwork",
+          "label": "Download High-Quality Artwork",
+          "description": "Download higher-resolution covers, banners and icons where available, instead of the low-resolution copies launchers keep locally. Downloads are kept on disk.",
+          "type": "checkbox",
+          "default": true,
+          "required": false
         }
       ]
     }
@@ -97,65 +162,53 @@
   "preferences": [
     {
       "name": "enableSteam",
-      "title": "Launchers",
+      "title": "Steam",
       "label": "Steam",
-      "description": "Include games installed through Steam.",
+      "description": "Show games installed through Steam.",
       "type": "checkbox",
       "default": true,
       "required": false
     },
     {
       "name": "enableLutris",
-      "title": "",
+      "title": "Lutris",
       "label": "Lutris",
-      "description": "Include games installed through Lutris (GOG, Epic, Ubisoft, manually added games, ...).",
+      "description": "Show games installed through Lutris, including GOG, Epic and manually added games.",
       "type": "checkbox",
       "default": true,
       "required": false
     },
     {
       "name": "hideDuplicates",
-      "title": "Duplicates",
-      "label": "Show games installed in several launchers only once",
-      "description": "When the same game is installed through more than one launcher (e.g. a Steam game Lutris also manages), show only one copy. Steam takes precedence over Lutris.",
+      "title": "Merge Duplicates",
+      "label": "Merge Duplicates",
+      "description": "Show a game installed in several launchers as one entry. Choose which launcher opens it with the Launcher Priority action.",
       "type": "checkbox",
       "default": true,
       "required": false
     },
     {
       "name": "steamPath",
-      "title": "Steam Directory",
-      "description": "Use only the Steam install in this folder (the one that contains steamapps/), instead of auto-detecting. Leave empty to auto-detect native, Flatpak, and Snap installs.",
+      "title": "Steam Folder",
+      "description": "Only use the Steam install in this folder. Leave empty to find it automatically.",
       "type": "directory",
       "required": false
     },
     {
       "name": "includeNonGames",
-      "title": "Steam Tools",
-      "label": "Show Proton, runtimes, and other non-game Steam apps",
-      "description": "Include Steam tools such as Proton and the Steam Linux Runtime in results.",
+      "title": "Show Steam Tools",
+      "label": "Show Steam Tools",
+      "description": "Also list Proton, the Steam Linux Runtime and other non-game Steam apps.",
       "type": "checkbox",
       "default": false,
       "required": false
     },
     {
       "name": "lutrisPath",
-      "title": "Lutris Directory",
-      "description": "Use only the Lutris data folder at this path (the one containing pga.db), instead of auto-detecting. Leave empty to auto-detect native and Flatpak installs.",
+      "title": "Lutris Folder",
+      "description": "Only use the Lutris data folder at this path (the one containing pga.db). Leave empty to find it automatically.",
       "type": "directory",
       "required": false
-    },
-    {
-      "name": "artworkSource",
-      "title": "Artwork Source",
-      "description": "Steam's local cache only holds low-resolution art (300x450 covers, 32px icons). High resolution downloads sharper covers, banners and icons from Steam's CDN once and keeps them on disk.",
-      "type": "dropdown",
-      "required": false,
-      "default": "hires",
-      "data": [
-        { "title": "High resolution (download from Steam)", "value": "hires" },
-        { "title": "Steam's local cache only (no downloads)", "value": "local" }
-      ]
     }
   ],
   "scripts": {

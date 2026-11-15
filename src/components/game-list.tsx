@@ -1,7 +1,7 @@
 import { Action, Icon, type Image, List } from "@vicinae/api";
 import { useState } from "react";
 import { formatBytes, formatLastPlayed, formatPlaytime, markdownUrl } from "../lib/format";
-import { type Game, type GameArtwork, LAUNCHER_NAMES } from "../lib/games";
+import { type Game, type GameArtwork, LAUNCHER_NAMES, launchersOf } from "../lib/games";
 import { pickArtwork, pickListIcon } from "../lib/view-settings";
 import { GameActions } from "./game-actions";
 import type { GameViewProps } from "./game-grid";
@@ -49,6 +49,12 @@ function GameDetail(props: { game: Game; hires: GameArtwork | undefined; collect
           {size && <List.Item.Detail.Metadata.Label title="Size on Disk" text={size} />}
           <List.Item.Detail.Metadata.Separator />
           <List.Item.Detail.Metadata.Label title="Launcher" text={LAUNCHER_NAMES[game.source]} />
+          {game.alternates?.length ? (
+            <List.Item.Detail.Metadata.Label
+              title="Also installed in"
+              text={game.alternates.map((a) => LAUNCHER_NAMES[a.source]).join(", ")}
+            />
+          ) : null}
           {game.lutris?.service && <List.Item.Detail.Metadata.Label title="Store" text={storeName(game.lutris.service)} />}
           {game.lutris?.runner && <List.Item.Detail.Metadata.Label title="Runner" text={game.lutris.runner} />}
           {game.lutris?.platform && <List.Item.Detail.Metadata.Label title="Platform" text={game.lutris.platform} />}
@@ -97,7 +103,12 @@ export function GameList(props: GameViewProps & { initialShowDetail: boolean }) 
                   showDetail
                     ? undefined
                     : [
-                        ...(props.showLauncher ? [{ tag: LAUNCHER_NAMES[game.source], tooltip: "Launcher" }] : []),
+                        ...(props.showLauncher
+                          ? launchersOf(game).map((l, i) => ({
+                              tag: LAUNCHER_NAMES[l],
+                              tooltip: i === 0 ? "Opens with this launcher" : "Also installed here",
+                            }))
+                          : []),
                         ...(playtime ? [{ text: playtime, icon: Icon.Hourglass, tooltip: "Playtime" }] : []),
                         { text: formatLastPlayed(game.lastPlayed).replace(/^Played /, ""), icon: Icon.Clock, tooltip: "Last played" },
                       ]
@@ -108,7 +119,7 @@ export function GameList(props: GameViewProps & { initialShowDetail: boolean }) 
                     game={game}
                     isHidden={hidden.has(game.id)}
                     onToggleHidden={props.onToggleHidden}
-                    onClearCache={props.onClearCache}
+                    settingsActions={props.settingsActions}
                     layoutActions={toggleDetail}
                   />
                 }

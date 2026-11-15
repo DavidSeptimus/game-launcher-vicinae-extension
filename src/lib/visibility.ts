@@ -20,26 +20,44 @@ export function isHidden(id: string, state: HiddenState, hiddenInLauncher: Reado
   return state.hidden.has(id) || (hiddenInLauncher.has(id) && !state.shown.has(id));
 }
 
+/** A merged entry (one game, several launchers) is hidden if any of its copies is. */
+export function isAnyHidden(ids: readonly string[], state: HiddenState, hiddenInLauncher: ReadonlySet<string>): boolean {
+  return ids.some((id) => isHidden(id, state, hiddenInLauncher));
+}
+
 export interface ToggleResult {
   state: HiddenState;
   nowHidden: boolean;
-  /** Unhidden here, but the launcher still hides it. */
-  stillHiddenInLauncher: boolean;
+  /** Copies that were unhidden here but are still hidden in their own launcher. */
+  stillHiddenInLauncher: string[];
 }
 
-export function toggleHidden(id: string, state: HiddenState, hiddenInLauncher: ReadonlySet<string>): ToggleResult {
+/**
+ * Hide or unhide one entry, given the ids of all its copies (preferred first).
+ * Unhiding clears every copy, so the entry stays visible whichever launcher is preferred;
+ * launcher-hidden copies get a "shown here" override. Hiding restores a launcher's own
+ * hidden choice where there is one, and otherwise hides the preferred copy.
+ */
+export function toggleHidden(ids: string | readonly string[], state: HiddenState, hiddenInLauncher: ReadonlySet<string>): ToggleResult {
+  const copies = typeof ids === "string" ? [ids] : ids;
   const hidden = new Set(state.hidden);
   const shown = new Set(state.shown);
-  const inLauncher = hiddenInLauncher.has(id);
-  if (isHidden(id, state, hiddenInLauncher)) {
-    hidden.delete(id);
-    if (inLauncher) shown.add(id);
-    return { state: { hidden, shown }, nowHidden: false, stillHiddenInLauncher: inLauncher };
+  if (isAnyHidden(copies, state, hiddenInLauncher)) {
+    const stillHiddenInLauncher: string[] = [];
+    for (const id of copies) {
+      hidden.delete(id);
+      if (hiddenInLauncher.has(id)) {
+        shown.add(id);
+        stillHiddenInLauncher.push(id);
+      }
+    }
+    return { state: { hidden, shown }, nowHidden: false, stillHiddenInLauncher };
   }
-  // Hiding again: for a launcher-hidden game, dropping the override is enough.
-  if (inLauncher) shown.delete(id);
-  else hidden.add(id);
-  return { state: { hidden, shown }, nowHidden: true, stillHiddenInLauncher: false };
+  const launcherHidden = copies.filter((id) => hiddenInLauncher.has(id));
+  // Hiding again: for launcher-hidden copies, dropping the overrides is enough.
+  if (launcherHidden.length) for (const id of launcherHidden) shown.delete(id);
+  else hidden.add(copies[0]!);
+  return { state: { hidden, shown }, nowHidden: true, stillHiddenInLauncher: [] };
 }
 
 /**

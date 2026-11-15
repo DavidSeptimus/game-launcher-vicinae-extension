@@ -1,6 +1,6 @@
 import { Grid, Icon, type Image } from "@vicinae/api";
 import { formatBytes, formatLastPlayed, formatPlaytime } from "../lib/format";
-import { type Game, type GameArtwork, LAUNCHER_NAMES } from "../lib/games";
+import { type Game, type GameArtwork, LAUNCHER_NAMES, launchersOf } from "../lib/games";
 import { pickArtwork, type ViewSettings } from "../lib/view-settings";
 import { GameActions } from "./game-actions";
 
@@ -16,7 +16,8 @@ export interface GameViewProps {
   /** Label games with their launcher (when games come from more than one). */
   showLauncher: boolean;
   onToggleHidden: (game: Game) => void;
-  onClearCache: () => void;
+  /** Settings section for each game's action panel. */
+  settingsActions: React.ReactNode;
   searchBarAccessory: React.ReactNode;
   emptyView: React.ReactNode;
 }
@@ -27,12 +28,19 @@ function gridContent(game: Game, settings: ViewSettings, hires: GameArtwork | un
   return { source: art.source, fallback: art.fallback ?? Icon.GameController };
 }
 
+/** "Steam", or "Steam + Lutris" for a game installed through both (preferred first). */
+export function launcherLabel(game: Game): string {
+  return launchersOf(game)
+    .map((l) => LAUNCHER_NAMES[l])
+    .join(" + ");
+}
+
 export function tooltipFor(game: Game): string {
   const playtime = formatPlaytime(game.playtimeMinutes);
   const size = formatBytes(game.sizeOnDisk);
   return [
     game.title,
-    LAUNCHER_NAMES[game.source],
+    launcherLabel(game),
     formatLastPlayed(game.lastPlayed),
     playtime && `${playtime} on record`,
     size && `${size} on disk`,
@@ -63,7 +71,7 @@ export function GameGrid(props: GameViewProps) {
               title={settings.labels === "none" ? undefined : game.title}
               subtitle={
                 settings.labels === "full"
-                  ? [props.showLauncher ? LAUNCHER_NAMES[game.source] : undefined, formatLastPlayed(game.lastPlayed)]
+                  ? [props.showLauncher ? launcherLabel(game) : undefined, formatLastPlayed(game.lastPlayed)]
                       .filter(Boolean)
                       .join(" · ")
                   : undefined
@@ -75,7 +83,7 @@ export function GameGrid(props: GameViewProps) {
                   game={game}
                   isHidden={hidden.has(game.id)}
                   onToggleHidden={props.onToggleHidden}
-                  onClearCache={props.onClearCache}
+                  settingsActions={props.settingsActions}
                 />
               }
             />

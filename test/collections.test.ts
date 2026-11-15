@@ -11,7 +11,7 @@ import type { Game } from "../src/lib/games";
 import { type LibraryScan, scanLibrary } from "../src/lib/library";
 import { parseCollections, readSteamCollections } from "../src/lib/steam/collections";
 import { scanSteamInstall } from "../src/lib/steam/library";
-import { emptyHiddenState, isHidden, pruneShown, toggleHidden } from "../src/lib/visibility";
+import { emptyHiddenState, isAnyHidden, isHidden, pruneShown, toggleHidden } from "../src/lib/visibility";
 import { makeTempDir, manifest, writeFile } from "./fixtures/fake-steam";
 
 /** A cloud-storage-namespace-1.json document, in Steam's [key, entry] pair format. */
@@ -100,19 +100,42 @@ describe("visibility", () => {
 
   it("hides and unhides our own games", () => {
     const hid = toggleHidden("steam:1", emptyHiddenState(), steamHidden);
-    expect(hid).toMatchObject({ nowHidden: true, stillHiddenInLauncher: false });
+    expect(hid).toMatchObject({ nowHidden: true, stillHiddenInLauncher: [] });
     const unhid = toggleHidden("steam:1", hid.state, steamHidden);
-    expect(unhid).toMatchObject({ nowHidden: false, stillHiddenInLauncher: false });
+    expect(unhid).toMatchObject({ nowHidden: false, stillHiddenInLauncher: [] });
     expect(unhid.state).toEqual(emptyHiddenState());
   });
 
   it("shows a Steam-hidden game with an override, and hiding it again drops the override", () => {
     const shown = toggleHidden("steam:2", emptyHiddenState(), steamHidden);
-    expect(shown).toMatchObject({ nowHidden: false, stillHiddenInLauncher: true });
+    expect(shown).toMatchObject({ nowHidden: false, stillHiddenInLauncher: ["steam:2"] });
     expect(isHidden("steam:2", shown.state, steamHidden)).toBe(false);
     const again = toggleHidden("steam:2", shown.state, steamHidden);
     expect(again.nowHidden).toBe(true);
     expect(again.state).toEqual(emptyHiddenState());
+  });
+
+  it("treats a merged entry as hidden if any copy is, and unhides every copy", () => {
+    const copies = ["steam:1", "lutris:5", "lutris:6"];
+    const launcherHidden = new Set(["lutris:5"]);
+    const state = { hidden: new Set(["steam:1"]), shown: new Set<string>() };
+    expect(isAnyHidden(copies, emptyHiddenState(), launcherHidden)).toBe(true);
+    expect(isAnyHidden(["steam:1"], emptyHiddenState(), launcherHidden)).toBe(false);
+
+    const unhid = toggleHidden(copies, state, launcherHidden);
+    expect(unhid).toMatchObject({ nowHidden: false, stillHiddenInLauncher: ["lutris:5"] });
+    expect(unhid.state).toEqual({ hidden: new Set(), shown: new Set(["lutris:5"]) });
+    expect(isAnyHidden(copies, unhid.state, launcherHidden)).toBe(false);
+
+    // Hiding again restores the launcher's own choice instead of adding a separate hide.
+    const rehid = toggleHidden(copies, unhid.state, launcherHidden);
+    expect(rehid.nowHidden).toBe(true);
+    expect(rehid.state).toEqual(emptyHiddenState());
+  });
+
+  it("hides the preferred copy of a merged entry nobody hid before", () => {
+    const result = toggleHidden(["lutris:5", "steam:1"], emptyHiddenState(), new Set());
+    expect(result.state.hidden).toEqual(new Set(["lutris:5"]));
   });
 
   it("prunes overrides for games Steam no longer hides", () => {
