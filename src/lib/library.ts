@@ -54,8 +54,6 @@ export interface LibraryScan {
   installedSteamAppids: Set<number>;
   /** Steam was enabled and fully scanned: safe to prune Steam-keyed caches. */
   steamComplete: boolean;
-  /** Copies merged into another launcher's entry for the same game. */
-  duplicatesHidden: number;
 }
 
 export interface MergeResult {
@@ -110,6 +108,10 @@ export function mergeCopies(preferred: Game, others: Game[]): Game {
  * Merge copies of the same game across launchers, matched by store id (e.g. a Steam game
  * Lutris also manages has "steam:<appid>", like Steam's own copy). The copy from the launcher
  * earliest in `priority` becomes the entry; the rest become its alternates.
+ *
+ * Only copies from *different* launchers merge: two copies inside one launcher (e.g. a GOG
+ * game installed twice in Lutris) stay separate entries, since "Launch with Lutris" twice
+ * couldn't tell them apart.
  */
 export function mergeByPriority(games: readonly Game[], priority: readonly GameSource[] = LAUNCHER_PRECEDENCE): MergeResult {
   const rank = (g: Game) => {
@@ -122,25 +124,34 @@ export function mergeByPriority(games: readonly Game[], priority: readonly GameS
   const aliases = new Map<string, string>();
   for (const game of ordered) {
     const preferred = game.storeIds.map((id) => claimed.get(id)).find((g) => g !== undefined);
-    if (preferred) {
-      groups.get(preferred)!.push(game);
+    const group = preferred && groups.get(preferred)!;
+    if (preferred && group && preferred.source !== game.source && !group.some((c) => c.source === game.source)) {
+      group.push(game);
       aliases.set(game.id, preferred.id);
       continue;
     }
     groups.set(game, []);
-    for (const id of game.storeIds) claimed.set(id, game);
+    // A same-launcher copy stays separate and doesn't take over store ids already claimed.
+    for (const id of game.storeIds) if (!claimed.has(id)) claimed.set(id, game);
   }
   return { games: [...groups].map(([preferred, others]) => mergeCopies(preferred, others)), aliases };
 }
 
-/** Scan every enabled launcher and return one sorted list. */
-export function scanLibrary(options: LibraryOptions = {}): LibraryScan {
-  const priority = normalizePriority(options.launcherPriority ?? LAUNCHER_PRECEDENCE);
-  const enabled = priority.filter((l) => !options.enabledLaunchers || options.enabledLaunchers.includes(l));
+/** Raw per-launcher results from disk, before merging. Re-merging (e.g. a priority change) doesn't need a rescan. */
+export interface LauncherScans {
+  /** Enabled launchers' results, in default order. */
+  launchers: LauncherScan[];
+  enabledLaunchers: GameSource[];
+  installedSteamAppids: Set<number>;
+  steamComplete: boolean;
+}
+
+/** Scan every enabled launcher on disk (synchronous; the expensive part). */
+export function scanLaunchers(options: Omit<LibraryOptions, "launcherPriority" | "hideDuplicates"> = {}): LauncherScans {
+  const enabled = LAUNCHER_PRECEDENCE.filter((l) => !options.enabledLaunchers || options.enabledLaunchers.includes(l));
   const launchers: LauncherScan[] = [];
   let installedSteamAppids = new Set<number>();
   let steamComplete = false;
-
   for (const launcher of enabled) {
     if (launcher === "steam") {
       const steam = scanSteam({
@@ -156,7 +167,17 @@ export function scanLibrary(options: LibraryOptions = {}): LibraryScan {
       launchers.push(scanLutris({ lutrisPath: options.lutrisPath, home: options.home }));
     }
   }
+  return { launchers, enabledLaunchers: enabled, installedSteamAppids, steamComplete };
+}
 
+/** Merge launcher results into one sorted list (in memory; cheap enough to redo on every priority change). */
+export function combineLibrary(
+  raw: LauncherScans,
+  options: { launcherPriority?: readonly GameSource[]; hideDuplicates?: boolean } = {},
+): LibraryScan {
+  const priority = normalizePriority(options.launcherPriority ?? LAUNCHER_PRECEDENCE);
+  const rank = (l: GameSource) => priority.indexOf(l);
+  const launchers = [...raw.launchers].sort((a, b) => rank(a.launcher) - rank(b.launcher));
   const all = launchers.flatMap((l) => l.games);
   const { games, aliases } =
     options.hideDuplicates === false ? { games: all, aliases: new Map<string, string>() } : mergeByPriority(all, priority);
@@ -168,20 +189,24 @@ export function scanLibrary(options: LibraryOptions = {}): LibraryScan {
   );
 
   return {
-    games: games.sort(compareGames),
+    games: [...games].sort(compareGames),
     launchers,
     priority,
-    enabledLaunchers: enabled,
+    enabledLaunchers: priority.filter((l) => raw.enabledLaunchers.includes(l)),
     warnings: launchers.flatMap((l) => l.warnings),
     sources: launchers.flatMap((l) => l.sources),
     settingsProblems: launchers.flatMap((l) => (l.settingsProblem ? [l.settingsProblem] : [])),
     collections,
     hiddenInLauncher: new Set(launchers.flatMap((l) => [...l.hiddenInLauncher])),
     hiddenListsComplete: new Set(launchers.filter((l) => l.hiddenListComplete).map((l) => l.launcher)),
-    installedSteamAppids,
-    steamComplete,
-    duplicatesHidden: aliases.size,
+    installedSteamAppids: raw.installedSteamAppids,
+    steamComplete: raw.steamComplete,
   };
+}
+
+/** Scan every enabled launcher and return one sorted list. */
+export function scanLibrary(options: LibraryOptions = {}): LibraryScan {
+  return combineLibrary(scanLaunchers(options), options);
 }
 
 export interface EmptyStateText {

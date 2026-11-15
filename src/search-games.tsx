@@ -19,7 +19,7 @@ import {
 import { copiesOf, type Game, type GameSource, LAUNCHER_NAMES, LAUNCHER_PRECEDENCE } from "./lib/games";
 import { loadHiddenState, saveHiddenState } from "./lib/hidden";
 import { loadPriority, savePriority } from "./lib/launcher-priority";
-import { emptyStateText, type LibraryScan, scanLibrary } from "./lib/library";
+import { combineLibrary, emptyStateText, type LauncherScans, type LibraryScan, scanLaunchers } from "./lib/library";
 import { resolveViewSettings } from "./lib/view-settings";
 import { emptyHiddenState, type HiddenState, pruneShown, toggleHidden } from "./lib/visibility";
 
@@ -31,7 +31,8 @@ export default function SearchGames() {
     [prefs.layout, prefs.artwork, prefs.gridSize, prefs.labels],
   );
 
-  const [scan, setScan] = useState<LibraryScan | undefined>();
+  // Raw per-launcher results from disk; merging them into `scan` is cheap and redone in memory.
+  const [rawScan, setRawScan] = useState<LauncherScans | undefined>();
   const [hiddenState, setHiddenState] = useState<HiddenState | undefined>();
   // If the saved hidden lists couldn't be loaded, never save: that would overwrite them with an empty list.
   const [hiddenLoadFailed, setHiddenLoadFailed] = useState(false);
@@ -44,25 +45,43 @@ export default function SearchGames() {
   );
 
   // Vicinae unloads the command when its window closes, so every open starts with a fresh scan
-  // (and changing a preference re-runs it). There's no manual refresh: nothing to refresh between opens.
+  // (and changing a launcher setting re-runs it). There's no manual refresh: nothing to refresh between opens.
+  // Priority and Merge Duplicates only affect merging, so they don't trigger a rescan.
   const runScan = useCallback(() => {
-    const result = scanLibrary({
+    const result = scanLaunchers({
       enabledLaunchers,
-      launcherPriority: priority,
       steamPath: prefs.steamPath,
       includeNonGames: prefs.includeNonGames,
       lutrisPath: prefs.lutrisPath,
-      hideDuplicates: prefs.hideDuplicates !== false,
       appInfoCachePath: join(environment.supportPath, "appinfo-cache.json"),
     });
-    // A bad launcher folder setting means nothing is found there; the empty state explains it (no toast needed).
-    for (const w of result.warnings) console.warn(w);
-    setScan(result);
-  }, [enabledLaunchers, priority, prefs.steamPath, prefs.includeNonGames, prefs.lutrisPath, prefs.hideDuplicates]);
+    for (const w of result.launchers.flatMap((l) => l.warnings)) console.warn(w);
+    setRawScan(result);
+  }, [enabledLaunchers, prefs.steamPath, prefs.includeNonGames, prefs.lutrisPath]);
+
+  const scan = useMemo<LibraryScan | undefined>(
+    () =>
+      rawScan
+        ? combineLibrary(rawScan, { launcherPriority: priority, hideDuplicates: prefs.hideDuplicates !== false })
+        : undefined,
+    [rawScan, priority, prefs.hideDuplicates],
+  );
+
+  // A bad launcher folder setting is explained by the empty state when nothing was found. When other
+  // launchers do have games, the empty state never shows, so say it here instead.
+  const settingsProblemKey = scan && scan.games.length > 0 ? scan.settingsProblems.join("\n") : "";
+  useEffect(() => {
+    if (!settingsProblemKey) return;
+    void showToast({
+      style: Toast.Style.Failure,
+      title: "A launcher folder setting isn't working",
+      message: settingsProblemKey,
+    });
+  }, [settingsProblemKey]);
 
   const onPriorityChange = useCallback(
     (order: GameSource[]) => {
-      setPriority(order); // rescans via runScan's dependencies
+      setPriority(order); // re-merges in memory; no rescan
       try {
         savePriority(priorityPath, order);
       } catch (err) {
@@ -79,6 +98,11 @@ export default function SearchGames() {
   useEffect(() => {
     // Defer so the loading state renders before the synchronous filesystem scan.
     const timer = setTimeout(runScan, 0);
+    return () => clearTimeout(timer);
+  }, [runScan]);
+
+  // Load hidden games once per open. Reloading on every rescan could race with a save in progress.
+  useEffect(() => {
     loadHiddenState().then(
       (state) => {
         setHiddenLoadFailed(false);
@@ -90,8 +114,7 @@ export default function SearchGames() {
         setHiddenState(emptyHiddenState());
       },
     );
-    return () => clearTimeout(timer);
-  }, [runScan]);
+  }, []);
 
   // Forget "show anyway" overrides for games a launcher no longer hides — only for launchers whose
   // hidden list was read completely; a failed read or a disabled launcher would otherwise wipe them.

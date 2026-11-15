@@ -141,7 +141,6 @@ describe("emptyStateText", () => {
     hiddenListsComplete: new Set(),
     installedSteamAppids: new Set(),
     steamComplete: false,
-    duplicatesHidden: 0,
     ...over,
   });
 

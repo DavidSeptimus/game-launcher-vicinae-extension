@@ -20,6 +20,11 @@ export interface SteamLauncherScan extends LauncherScan {
   installedAppids: Set<number>;
 }
 
+/**
+ * Scan Steam. Only one install is used (the Steam Folder setting, else the first found: native,
+ * then Flatpak, then Snap); other installs are noted. Supporting several at once would mean
+ * reconciling duplicate app ids, play data and steam:// handlers across them.
+ */
 export function scanSteam(options: SteamScanOptions = {}): SteamLauncherScan {
   const warnings: string[] = [];
   const sources: string[] = [];
@@ -31,7 +36,14 @@ export function scanSteam(options: SteamScanOptions = {}): SteamLauncherScan {
   let complete = true;
 
   const appInfo = options.appInfoCachePath ? AppInfoStore.load(options.appInfoCachePath) : AppInfoStore.memory();
-  const installs = findSteamInstalls({ override: options.steamPath, home: options.home });
+  const [first, ...others] = findSteamInstalls({ override: options.steamPath, home: options.home });
+  const installs = first ? [first] : [];
+  for (const other of others) {
+    warnings.push(
+      `Also found Steam (${other.kind}) at ${other.root}; only the ${first!.kind} install is used. ` +
+        "Set the Steam Folder setting to use a different one.",
+    );
+  }
   // With nothing found we can't tell "no games" from "wrong path", so never treat the result as authoritative.
   if (installs.length === 0) complete = false;
   const settingsProblem =

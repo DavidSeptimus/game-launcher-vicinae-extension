@@ -33,13 +33,13 @@ export interface ToggleResult {
 }
 
 /**
- * Hide or unhide one entry, given the ids of all its copies (preferred first).
- * Unhiding clears every copy, so the entry stays visible whichever launcher is preferred;
- * launcher-hidden copies get a "shown here" override. Hiding restores a launcher's own
- * hidden choice where there is one, and otherwise hides the preferred copy.
+ * Hide or unhide one entry, given the ids of all its copies (preferred first). Both act on
+ * every copy, so the entry behaves the same whichever launcher is preferred, and with
+ * Merge Duplicates off each copy stays hidden or shown. Unhiding gives launcher-hidden copies
+ * a "shown here" override; hiding drops those overrides (restoring the launcher's own choice)
+ * and hides the other copies here.
  */
-export function toggleHidden(ids: string | readonly string[], state: HiddenState, hiddenInLauncher: ReadonlySet<string>): ToggleResult {
-  const copies = typeof ids === "string" ? [ids] : ids;
+export function toggleHidden(copies: readonly string[], state: HiddenState, hiddenInLauncher: ReadonlySet<string>): ToggleResult {
   const hidden = new Set(state.hidden);
   const shown = new Set(state.shown);
   if (isAnyHidden(copies, state, hiddenInLauncher)) {
@@ -53,10 +53,10 @@ export function toggleHidden(ids: string | readonly string[], state: HiddenState
     }
     return { state: { hidden, shown }, nowHidden: false, stillHiddenInLauncher };
   }
-  const launcherHidden = copies.filter((id) => hiddenInLauncher.has(id));
-  // Hiding again: for launcher-hidden copies, dropping the overrides is enough.
-  if (launcherHidden.length) for (const id of launcherHidden) shown.delete(id);
-  else hidden.add(copies[0]!);
+  for (const id of copies) {
+    if (hiddenInLauncher.has(id)) shown.delete(id);
+    else hidden.add(id);
+  }
   return { state: { hidden, shown }, nowHidden: true, stillHiddenInLauncher: [] };
 }
 

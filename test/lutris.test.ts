@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { applyFilter, collectionOptions, launcherOptions, resolveFilter } from "../src/lib/game-views";
 import { copiesOf, type Game, launchersOf } from "../src/lib/games";
-import { mergeByPriority, mergeCopies, scanLibrary } from "../src/lib/library";
+import { combineLibrary, mergeByPriority, mergeCopies, scanLaunchers, scanLibrary } from "../src/lib/library";
 import { isDefaultPriority, loadPriority, moveLauncher, normalizePriority, savePriority } from "../src/lib/launcher-priority";
 import { findLutrisInstalls } from "../src/lib/lutris/paths";
 import { scanLutris, steamAppIdFromConfig, storeIdsFor } from "../src/lib/lutris/scan";
@@ -143,6 +143,54 @@ describe("scanLutris", () => {
     expect(steamAppIdFromConfig(yaml)).toBe(expected);
   });
 
+  it("uses only one install (native first) and notes any others", () => {
+    const home = makeTempDir();
+    makeLutrisDb(join(home, ".local/share/lutris"), [{ id: 1, name: "Native Game", slug: "native-game", categories: [".hidden"] }]);
+    const flatpak = join(home, ".var/app/net.lutris.Lutris/data/lutris");
+    makeLutrisDb(flatpak, [{ id: 1, name: "Flatpak Game", slug: "flatpak-game", categories: ["favorite"] }]);
+    const result = scanLutris({ home });
+    expect(result.games.map((g) => [g.id, g.title, g.launchUri])).toEqual([["lutris:1", "Native Game", "lutris:rungameid/1"]]);
+    expect(result.hiddenInLauncher).toEqual(new Set(["lutris:1"]));
+    expect(result.collections).toEqual([]); // the Flatpak install's favorites aren't read
+    expect(result.sources).toEqual([`Lutris (native): ${join(home, ".local/share/lutris")}`]);
+    expect(result.warnings).toEqual([
+      `Also found Lutris (flatpak) at ${flatpak}; only the native install is used. Set the Lutris Folder setting to use a different one.`,
+    ]);
+  });
+
+  it("uses the install the Lutris Folder setting points at, with no note about others", () => {
+    const home = makeTempDir();
+    makeLutrisDb(join(home, ".local/share/lutris"), [{ id: 1, name: "Native Game", slug: "native-game" }]);
+    const flatpak = join(home, ".var/app/net.lutris.Lutris/data/lutris");
+    makeLutrisDb(flatpak, [{ id: 1, name: "Flatpak Game", slug: "flatpak-game" }]);
+    const result = scanLutris({ home, lutrisPath: flatpak });
+    expect(result.games.map((g) => g.title)).toEqual(["Flatpak Game"]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("doesn't trust the hidden list when the categories query fails for a reason other than missing tables", () => {
+    const home = makeTempDir();
+    const dataDir = nativeLutris(home).dataDir;
+    makeLutrisDb(dataDir, [{ id: 1, name: "A", slug: "a" }], { categoriesTables: false });
+    // A categories table without the columns we read makes the query fail with "no such column".
+    const sqlite = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
+    const db = new sqlite.DatabaseSync(join(dataDir, "pga.db"));
+    db.exec("CREATE TABLE categories (id INTEGER PRIMARY KEY); CREATE TABLE games_categories (game_id INTEGER, category_id INTEGER)");
+    db.close();
+    const result = scanLutris({ home });
+    expect(result.games).toHaveLength(1);
+    expect(result.hiddenListComplete).toBe(false);
+    expect(result.warnings[0]).toMatch(/^Couldn't read Lutris's categories/);
+  });
+
+  it("finds Steam app ids in the usual config dirs even with the Lutris Folder setting", () => {
+    const home = makeTempDir();
+    const { dataDir } = nativeLutris(home);
+    makeLutrisDb(dataDir, [{ id: 2, name: "Wartales", slug: "wartales", runner: "steam", configpath: "wartales-1" }]);
+    writeFile(join(home, ".config/lutris/games/wartales-1.yml"), "game:\n  appid: '1527950'\n");
+    expect(scanLutris({ home, lutrisPath: dataDir }).games[0]?.storeIds).toEqual(["steam:1527950"]);
+  });
+
   it("builds store ids from the service", () => {
     expect(storeIdsFor({ service: "steam", service_id: "1145350" })).toEqual(["steam:1145350"]);
     expect(storeIdsFor({ service: "gog", service_id: "1" }, "730")).toEqual(["gog:1", "steam:730"]);
@@ -175,7 +223,6 @@ describe("Steam + Lutris", () => {
   it("shows a game in several launchers as one entry, opened with the preferred launcher", () => {
     const scan = scanLibrary({ home: bothLaunchers() });
     expect(scan.games.map((g) => g.id).sort()).toEqual(["lutris:1", "steam:1145350", "steam:1527950"]);
-    expect(scan.duplicatesHidden).toBe(2);
     const wartales = scan.games.find((g) => g.id === "steam:1527950")!;
     expect(wartales.alternates?.map((a) => [a.id, a.launchUri])).toEqual([["lutris:3", "lutris:rungameid/3"]]);
     // The Lutris favorite carries over to the Steam copy that's shown.
@@ -197,7 +244,19 @@ describe("Steam + Lutris", () => {
   it("shows every copy when duplicate hiding is off", () => {
     const scan = scanLibrary({ home: bothLaunchers(), hideDuplicates: false });
     expect(scan.games.map((g) => g.id).sort()).toEqual(["lutris:1", "lutris:2", "lutris:3", "steam:1145350", "steam:1527950"]);
-    expect(scan.duplicatesHidden).toBe(0);
+    expect(scan.games.every((g) => !g.alternates)).toBe(true);
+  });
+
+  it("re-merges in memory for a new priority without rescanning", () => {
+    const raw = scanLaunchers({ home: bothLaunchers() });
+    const steamFirst = combineLibrary(raw, { launcherPriority: ["steam", "lutris"] });
+    const lutrisFirst = combineLibrary(raw, { launcherPriority: ["lutris", "steam"] });
+    expect(steamFirst.games.find((g) => g.title === "Wartales")?.id).toBe("steam:1527950");
+    expect(lutrisFirst.games.find((g) => g.title === "Wartales")?.id).toBe("lutris:3");
+    expect(lutrisFirst.launchers.map((l) => l.launcher)).toEqual(["lutris", "steam"]);
+    // The raw scan isn't mutated by combining.
+    expect(raw.launchers.map((l) => l.launcher)).toEqual(["steam", "lutris"]);
+    expect(combineLibrary(raw, { hideDuplicates: false }).games).toHaveLength(5);
   });
 
   it("only scans enabled launchers", () => {
@@ -239,16 +298,33 @@ describe("mergeByPriority", () => {
     expect(aliases).toEqual(new Map([["lutris:2", "steam:10"]]));
   });
 
-  it("matches on any shared store id, and never merges games without one", () => {
+  it("never merges games without a store id", () => {
     const { games } = mergeByPriority([
       g("lutris:1", "lutris", []),
       g("lutris:2", "lutris", []),
       g("lutris:3", "lutris", ["gog:5"]),
       g("lutris:4", "lutris", ["gog:5"]),
     ]);
-    expect(games.map((x) => x.id)).toEqual(["lutris:1", "lutris:2", "lutris:3"]);
-    expect(games[2]?.alternates?.map((x) => x.id)).toEqual(["lutris:4"]);
-    expect(games[0]?.alternates).toBeUndefined();
+    // Same launcher: lutris:3 and lutris:4 share a store id but stay separate.
+    expect(games.map((x) => x.id)).toEqual(["lutris:1", "lutris:2", "lutris:3", "lutris:4"]);
+    expect(games.every((x) => !x.alternates)).toBe(true);
+  });
+
+  it("never merges two copies from the same launcher", () => {
+    const { games, aliases } = mergeByPriority([
+      g("steam:10", "steam", ["steam:10"]),
+      g("lutris:2", "lutris", ["steam:10"]),
+      g("lutris:3", "lutris", ["steam:10"]), // a second Lutris copy of the same Steam game
+      g("lutris:7", "lutris", ["gog:5"]),
+      g("lutris:8", "lutris", ["gog:5"]), // the same GOG game installed twice in Lutris
+    ]);
+    expect(games.map((x) => [x.id, x.alternates?.map((a) => a.id) ?? []])).toEqual([
+      ["steam:10", ["lutris:2"]],
+      ["lutris:3", []],
+      ["lutris:7", []],
+      ["lutris:8", []],
+    ]);
+    expect(aliases).toEqual(new Map([["lutris:2", "steam:10"]]));
   });
 
   it("respects a custom priority", () => {

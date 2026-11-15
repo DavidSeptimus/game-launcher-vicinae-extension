@@ -1,6 +1,7 @@
 /**
  * Read-only access to Lutris's SQLite database through Node's built-in
- * `node:sqlite` (Node 22.5+), so no native dependency has to be bundled.
+ * `node:sqlite` (unflagged from Node 22.13; the read-only and busy-timeout
+ * options need 22.12 and 22.16), so no native dependency has to be bundled.
  *
  * The module is loaded with process.getBuiltinModule (no import for the
  * bundler to resolve), and its one-time "SQLite is an experimental feature"
@@ -33,6 +34,6 @@ export function loadSqlite(): SqliteModule | undefined {
 /** Open a database read-only, waiting briefly if Lutris is mid-write. */
 export function openReadOnly(path: string): DatabaseSync {
   const sqlite = loadSqlite();
-  if (!sqlite) throw new Error(`Reading Lutris games needs Node 22.5 or newer (running ${process.version})`);
+  if (!sqlite) throw new Error(`Reading Lutris games needs Node 22.13 or newer (running ${process.version})`);
   return new sqlite.DatabaseSync(path, { readOnly: true, timeout: 1000 });
 }

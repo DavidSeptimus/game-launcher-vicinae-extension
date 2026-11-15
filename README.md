@@ -22,6 +22,8 @@ by Lutris); Heroic is planned.
 - The dropdown has a **Steam** section with Favorites and your manual collections (those with installed games).
   Dynamic (rule-based) collections aren't supported yet.
 - Works with native, Flatpak (`com.valvesoftware.Steam`) and Snap Steam installs, and every Steam library folder.
+  One install per launcher is used: the first found (native, then Flatpak, then Snap) or the one the folder setting
+  points at. Other installs are noted rather than merged.
   The Steam Folder setting replaces auto-detection with a single install; if it isn't a Steam folder, the empty
   state says so.
 - "Clear Artwork Cache…" in every game's action menu purges downloaded art (with confirmation).
@@ -105,7 +107,7 @@ src/hooks/                useHiresArtwork: fills the cache in the background, re
 src/lib/library.ts        runs enabled launchers, merges copies of the same game by priority, one sorted list
 src/lib/launcher-priority.ts  user launcher order (normalize, load/save, move)
 src/components/launcher-priority.tsx  the reorderable Launcher Priority view
-src/lib/steam/scan.ts     Steam launcher integration (all installs merged)
+src/lib/steam/scan.ts     Steam launcher integration (one install; others noted)
 src/lib/lutris/           Lutris launcher integration (paths, read-only SQLite, scan)
 src/lib/game-views.ts     dropdown views: installed / hidden / collections
 src/lib/visibility.ts     merged hidden rules (ours + Steam's, with "shown here" overrides)

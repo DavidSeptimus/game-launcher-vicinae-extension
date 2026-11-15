@@ -99,18 +99,18 @@ describe("visibility", () => {
   });
 
   it("hides and unhides our own games", () => {
-    const hid = toggleHidden("steam:1", emptyHiddenState(), steamHidden);
+    const hid = toggleHidden(["steam:1"], emptyHiddenState(), steamHidden);
     expect(hid).toMatchObject({ nowHidden: true, stillHiddenInLauncher: [] });
-    const unhid = toggleHidden("steam:1", hid.state, steamHidden);
+    const unhid = toggleHidden(["steam:1"], hid.state, steamHidden);
     expect(unhid).toMatchObject({ nowHidden: false, stillHiddenInLauncher: [] });
     expect(unhid.state).toEqual(emptyHiddenState());
   });
 
   it("shows a Steam-hidden game with an override, and hiding it again drops the override", () => {
-    const shown = toggleHidden("steam:2", emptyHiddenState(), steamHidden);
+    const shown = toggleHidden(["steam:2"], emptyHiddenState(), steamHidden);
     expect(shown).toMatchObject({ nowHidden: false, stillHiddenInLauncher: ["steam:2"] });
     expect(isHidden("steam:2", shown.state, steamHidden)).toBe(false);
-    const again = toggleHidden("steam:2", shown.state, steamHidden);
+    const again = toggleHidden(["steam:2"], shown.state, steamHidden);
     expect(again.nowHidden).toBe(true);
     expect(again.state).toEqual(emptyHiddenState());
   });
@@ -127,15 +127,16 @@ describe("visibility", () => {
     expect(unhid.state).toEqual({ hidden: new Set(), shown: new Set(["lutris:5"]) });
     expect(isAnyHidden(copies, unhid.state, launcherHidden)).toBe(false);
 
-    // Hiding again restores the launcher's own choice instead of adding a separate hide.
+    // Hiding again restores the launcher's own choice for its copy and hides the other copies here.
     const rehid = toggleHidden(copies, unhid.state, launcherHidden);
     expect(rehid.nowHidden).toBe(true);
-    expect(rehid.state).toEqual(emptyHiddenState());
+    expect(rehid.state).toEqual({ hidden: new Set(["steam:1", "lutris:6"]), shown: new Set() });
   });
 
-  it("hides the preferred copy of a merged entry nobody hid before", () => {
+  it("hides every copy of a merged entry, so each stays hidden if duplicates are later shown separately", () => {
     const result = toggleHidden(["lutris:5", "steam:1"], emptyHiddenState(), new Set());
-    expect(result.state.hidden).toEqual(new Set(["lutris:5"]));
+    expect(result.state.hidden).toEqual(new Set(["lutris:5", "steam:1"]));
+    expect(isHidden("steam:1", result.state, new Set())).toBe(true);
   });
 
   it("prunes overrides for games Steam no longer hides", () => {

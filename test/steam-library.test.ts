@@ -157,3 +157,24 @@ describe("Steam root without steamapps/", () => {
     expect(result.warnings.filter((w) => w.includes("not mounted"))).toEqual([]);
   });
 });
+
+describe("scanSteam with several installs", () => {
+  it("uses only the first install (native before Flatpak) and notes the others", async () => {
+    const { scanSteam } = await import("../src/lib/steam/scan");
+    const home = makeTempDir();
+    const native = join(home, ".local/share/Steam");
+    const flatpak = join(home, ".var/app/com.valvesoftware.Steam/.local/share/Steam");
+    writeFile(join(native, "steamapps/appmanifest_10.acf"), manifest({ appid: 10, name: "Native", installdir: "N" }));
+    writeFile(join(flatpak, "steamapps/appmanifest_20.acf"), manifest({ appid: 20, name: "Flatpak", installdir: "F" }));
+    const result = scanSteam({ home });
+    expect(result.games.map((g) => g.title)).toEqual(["Native"]);
+    expect([...result.installedAppids]).toEqual([10]);
+    expect(result.warnings).toContain(
+      `Also found Steam (flatpak) at ${flatpak}; only the native install is used. Set the Steam Folder setting to use a different one.`,
+    );
+    // The Steam Folder setting picks one explicitly, with no note.
+    const chosen = scanSteam({ home, steamPath: flatpak });
+    expect(chosen.games.map((g) => g.title)).toEqual(["Flatpak"]);
+    expect(chosen.warnings.filter((w) => w.startsWith("Also found"))).toEqual([]);
+  });
+});

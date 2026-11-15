@@ -136,23 +136,37 @@ function scanInstall(install: LutrisInstall) {
       )
       .all() as unknown as GameRow[];
     let categories: CategoryRow[] = [];
+    let categoriesError: string | undefined;
     try {
       categories = db
         .prepare(
           "SELECT gc.game_id AS game_id, c.name AS name FROM games_categories gc JOIN categories c ON c.id = gc.category_id",
         )
         .all() as unknown as CategoryRow[];
-    } catch {
-      // Very old databases have no categories tables: no favorites, hidden or collections then.
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Very old databases have no categories tables: no favorites, hidden or collections then. Anything
+      // else (e.g. "database is locked") means the hidden list is unknown, not empty.
+      if (!/no such table/i.test(message)) categoriesError = message;
     }
-    return { games: rows.map((r) => toGame(install, r)).filter((g): g is Game => Boolean(g)), categories };
+    return {
+      games: rows.map((r) => toGame(install, r)).filter((g): g is Game => Boolean(g)),
+      categories,
+      categoriesError,
+    };
   } finally {
     db.close();
   }
 }
 
+/**
+ * Scan Lutris. Only one install is used (the Lutris Folder setting, else the first found: native,
+ * then Flatpak). Each install numbers its games from 1 and the lutris: URL reaches only one of them,
+ * so mixing installs would need per-install ids and launch commands; other installs are just noted.
+ */
 export function scanLutris(options: LutrisScanOptions = {}): LutrisLauncherScan {
-  const installs = findLutrisInstalls({ override: options.lutrisPath, home: options.home });
+  const [install, ...others] = findLutrisInstalls({ override: options.lutrisPath, home: options.home });
+  const installs = install ? [install] : [];
   const result: LutrisLauncherScan = {
     launcher: "lutris",
     found: installs.length > 0,
@@ -169,6 +183,13 @@ export function scanLutris(options: LutrisScanOptions = {}): LutrisLauncherScan 
         : undefined,
   };
 
+  for (const other of others) {
+    result.warnings.push(
+      `Also found Lutris (${other.kind}) at ${other.dataDir}; only the ${install!.kind} install is used. ` +
+        "Set the Lutris Folder setting to use a different one.",
+    );
+  }
+
   const collections = new Map<string, GameCollection>();
   for (const install of installs) {
     result.sources.push(`Lutris (${install.kind}): ${install.dataDir}`);
@@ -184,6 +205,10 @@ export function scanLutris(options: LutrisScanOptions = {}): LutrisLauncherScan 
       continue;
     }
     result.games.push(...scanned.games);
+    if (scanned.categoriesError) {
+      result.hiddenListComplete = false;
+      result.warnings.push(`Couldn't read Lutris's categories at ${install.dataDir}: ${scanned.categoriesError}`);
+    }
     for (const { game_id, name } of scanned.categories) {
       const gameId = `lutris:${game_id}`;
       if (name === ".hidden") {

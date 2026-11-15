@@ -18,6 +18,14 @@ export interface LutrisInstall {
   kind: LutrisInstallKind;
 }
 
+/**
+ * With a custom data folder we can't tell which install it belongs to, so look for game configs
+ * in both usual config dirs too (config file names include a timestamp, so they don't clash).
+ */
+function overrideConfigDirs(home: string): string[] {
+  return [join(home, ".config/lutris/games"), join(home, ".var/app/net.lutris.Lutris/config/lutris/games")];
+}
+
 export function isLutrisDataDir(dir: string): boolean {
   return existsSync(join(dir, "pga.db"));
 }
@@ -27,13 +35,20 @@ export function isLutrisDataDir(dir: string): boolean {
  * the same layout under its sandboxed XDG data dir. Icons live in the XDG data
  * dir's hicolor theme (see lutris/settings.py ICON_PATH).
  *
- * A configured data dir replaces detection, like the Steam Folder setting.
+ * A configured data dir replaces detection, like the Steam Folder setting. Only the first
+ * install is used by the scan (see scanLutris); the rest are listed so the user can be told.
  */
 export function findLutrisInstalls(options: { override?: string; home?: string } = {}): LutrisInstall[] {
   const home = options.home ?? homedir();
   const override = options.override?.trim();
-  const candidates: { dataDir: string; xdgData: string; configDir?: string; kind: LutrisInstallKind }[] = override
-    ? [{ dataDir: override, xdgData: join(override, ".."), kind: "custom" }]
+  const candidates: {
+    dataDir: string;
+    xdgData: string;
+    configDir?: string;
+    extraConfigDirs?: string[];
+    kind: LutrisInstallKind;
+  }[] = override
+    ? [{ dataDir: override, xdgData: join(override, ".."), kind: "custom", extraConfigDirs: overrideConfigDirs(home) }]
     : [
         {
           dataDir: join(home, ".local/share/lutris"),
@@ -58,7 +73,7 @@ export function findLutrisInstalls(options: { override?: string; home?: string }
     installs.push({
       dataDir: real,
       iconDir: join(c.xdgData, "icons/hicolor/128x128/apps"),
-      gameConfigDirs: [...(c.configDir ? [join(c.configDir, "games")] : []), join(real, "games")],
+      gameConfigDirs: [...(c.configDir ? [join(c.configDir, "games")] : []), ...(c.extraConfigDirs ?? []), join(real, "games")],
       kind: c.kind,
     });
   }
