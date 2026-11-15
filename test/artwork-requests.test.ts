@@ -10,6 +10,7 @@ const game = (artwork: Game["artwork"], customArtwork?: Game["customArtwork"]): 
   launchUri: "steam://rungameid/7",
   lastPlayed: 0,
   keywords: [],
+  storeIds: ["steam:7"],
   artwork: { ...artwork, ...customArtwork },
   customArtwork,
   steam: { appid: 7, isTool: false, clientIcon: "abc" },

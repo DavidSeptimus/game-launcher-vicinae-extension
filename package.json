@@ -96,6 +96,33 @@
   ],
   "preferences": [
     {
+      "name": "enableSteam",
+      "title": "Launchers",
+      "label": "Steam",
+      "description": "Include games installed through Steam.",
+      "type": "checkbox",
+      "default": true,
+      "required": false
+    },
+    {
+      "name": "enableLutris",
+      "title": "",
+      "label": "Lutris",
+      "description": "Include games installed through Lutris (GOG, Epic, Ubisoft, manually added games, ...).",
+      "type": "checkbox",
+      "default": true,
+      "required": false
+    },
+    {
+      "name": "hideDuplicates",
+      "title": "Duplicates",
+      "label": "Show games installed in several launchers only once",
+      "description": "When the same game is installed through more than one launcher (e.g. a Steam game Lutris also manages), show only one copy. Steam takes precedence over Lutris.",
+      "type": "checkbox",
+      "default": true,
+      "required": false
+    },
+    {
       "name": "steamPath",
       "title": "Steam Directory",
       "description": "Use only the Steam install in this folder (the one that contains steamapps/), instead of auto-detecting. Leave empty to auto-detect native, Flatpak, and Snap installs.",
@@ -109,6 +136,13 @@
       "description": "Include Steam tools such as Proton and the Steam Linux Runtime in results.",
       "type": "checkbox",
       "default": false,
+      "required": false
+    },
+    {
+      "name": "lutrisPath",
+      "title": "Lutris Directory",
+      "description": "Use only the Lutris data folder at this path (the one containing pga.db), instead of auto-detecting. Leave empty to auto-detect native and Flatpak installs.",
+      "type": "directory",
       "required": false
     },
     {

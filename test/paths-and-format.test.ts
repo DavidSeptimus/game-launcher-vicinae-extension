@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { formatBytes, formatLastPlayed, formatPlaytime, markdownUrl } from "../src/lib/format";
 import { acronyms, compareGames, type Game } from "../src/lib/games";
+import type { LauncherScan } from "../src/lib/games";
 import { emptyStateText, type LibraryScan } from "../src/lib/library";
 import { findSteamInstalls } from "../src/lib/steam/paths";
 import { makeTempDir } from "./fixtures/fake-steam";
@@ -102,47 +103,86 @@ describe("scanLibrary completeness", () => {
   it("never reports a scan with a bad Steam path as complete (so the artwork cache isn't pruned)", async () => {
     const { scanLibrary } = await import("../src/lib/library");
     const result = scanLibrary({ steamPath: join(makeTempDir(), "not-steam"), home: makeTempDir() });
-    expect(result.complete).toBe(false);
-    expect(result.settingsProblem).toMatch(/doesn't point at a Steam install.*not-steam$/);
+    expect(result.steamComplete).toBe(false);
+    expect(result.settingsProblems).toEqual([expect.stringMatching(/doesn't point at a Steam install.*not-steam$/)]);
+  });
+
+  it("doesn't scan disabled launchers at all", async () => {
+    const { scanLibrary } = await import("../src/lib/library");
+    const result = scanLibrary({ enabledLaunchers: ["lutris"], steamPath: "/nope", home: makeTempDir() });
+    expect(result.launchers.map((l) => l.launcher)).toEqual(["lutris"]);
+    expect(result.steamComplete).toBe(false); // so Steam caches are never pruned while Steam is off
+    expect(result.settingsProblems).toEqual([]); // the Steam setting isn't even looked at
   });
 });
 
 describe("emptyStateText", () => {
-  const scan = (over: Partial<LibraryScan>): LibraryScan => ({
-    games: [],
-    warnings: [],
+  const launcher = (over: Partial<LauncherScan> & Pick<LauncherScan, "launcher">): LauncherScan => ({
+    found: false,
     sources: [],
-    installedSteamAppids: new Set(),
-    complete: false,
+    games: [],
     collections: [],
     hiddenInLauncher: new Set(),
-    hiddenInLauncherComplete: false,
+    hiddenListComplete: false,
+    complete: false,
+    warnings: [],
+    ...over,
+  });
+  const scan = (launchers: LauncherScan[], over: Partial<LibraryScan> = {}): LibraryScan => ({
+    games: [],
+    launchers,
+    enabledLaunchers: launchers.map((l) => l.launcher),
+    warnings: launchers.flatMap((l) => l.warnings),
+    sources: launchers.flatMap((l) => l.sources),
+    settingsProblems: launchers.flatMap((l) => (l.settingsProblem ? [l.settingsProblem] : [])),
+    collections: [],
+    hiddenInLauncher: new Set(),
+    hiddenListsComplete: new Set(),
+    installedSteamAppids: new Set(),
+    steamComplete: false,
+    duplicatesHidden: 0,
     ...over,
   });
 
-  it("explains a missing Steam install", () => {
-    const t = emptyStateText(scan({}));
-    expect(t.title).toBe("No Steam install found");
-    expect(t.description).toMatch(/native, Flatpak and Snap/);
+  it("says when every launcher is turned off", () => {
+    expect(emptyStateText(scan([])).title).toBe("All launchers are turned off");
   });
 
-  it("blames the setting when the Steam Directory is wrong", () => {
-    const t = emptyStateText(scan({ settingsProblem: "The Steam Directory setting doesn't point at a Steam install: /nope" }));
+  it("explains a single missing launcher", () => {
+    const t = emptyStateText(scan([launcher({ launcher: "steam" })]));
     expect(t.title).toBe("No Steam install found");
-    expect(t.description).toBe("The Steam Directory setting doesn't point at a Steam install: /nope. Fix it in Settings (Ctrl+,).");
+    expect(t.description).toMatch(/^Steam: not found in the usual native, Flatpak and Snap locations\./);
   });
 
-  it("lists where it looked, plus any problems, when Steam has no games", () => {
+  it("lists each launcher when none was found, and blames a bad folder setting", () => {
     const t = emptyStateText(
-      scan({
-        sources: ["Steam (native): /home/u/.local/share/Steam"],
-        settingsProblem: "Bad setting",
-        warnings: ["Steam library folder not found: /mnt/games"],
-      }),
+      scan([
+        launcher({ launcher: "steam", settingsProblem: "The Steam Directory setting doesn't point at a Steam install: /nope" }),
+        launcher({ launcher: "lutris" }),
+      ]),
+    );
+    expect(t.title).toBe("No game launchers found");
+    expect(t.description).toBe(
+      "The Steam Directory setting doesn't point at a Steam install: /nope\n" +
+        "Lutris: not found in the usual native and Flatpak locations.\n\nFix it in Settings (Ctrl+,).",
+    );
+  });
+
+  it("lists where it looked, plus any problems, when launchers have no games", () => {
+    const t = emptyStateText(
+      scan([
+        launcher({
+          launcher: "steam",
+          found: true,
+          sources: ["Steam (native): /home/u/.local/share/Steam"],
+          warnings: ["Steam library folder not found: /mnt/games"],
+        }),
+        launcher({ launcher: "lutris", settingsProblem: "Bad Lutris setting" }),
+      ]),
     );
     expect(t.title).toBe("No games found");
     expect(t.description).toBe(
-      "Looked in:\n• Steam (native): /home/u/.local/share/Steam\n\nBad setting\n\nSteam library folder not found: /mnt/games",
+      "Looked in:\n• Steam (native): /home/u/.local/share/Steam\n\nBad Lutris setting\n\nSteam library folder not found: /mnt/games",
     );
   });
 });

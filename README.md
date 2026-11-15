@@ -1,7 +1,8 @@
 # Game Launcher for Vicinae
 
 Search and launch your installed Linux games from [Vicinae](https://vicinae.com), in the spirit of Flow Launcher's
-GamesLauncher plugin. Steam is supported today; Heroic (Epic/GOG/Amazon) and Lutris are planned.
+GamesLauncher plugin. Supports **Steam** and **Lutris** (including GOG, Epic, Ubisoft and manually added games managed
+by Lutris); Heroic is planned.
 
 ## Features
 
@@ -26,6 +27,25 @@ GamesLauncher plugin. Steam is supported today; Heroic (Epic/GOG/Amazon) and Lut
   the extension downloads 2x covers/banners from Steam's CDN and extracts the largest image from each game's client
   `.ico`, caching them under Vicinae's support directory (many games only ship a 32px icon; those keep it). Set "Artwork Source" to local-only to never download. Custom grid art from `userdata/*/config/grid` always
   wins and is never replaced by downloads.
+
+## Multiple launchers
+
+- Each launcher can be turned on or off in Settings (Ctrl+,). A disabled launcher isn't scanned, and its cached data
+  and hidden-game choices are kept.
+- **Duplicates**: a game installed through several launchers (e.g. a Steam game Lutris also manages) is matched by
+  store id and shown once, from the highest-precedence launcher: **Steam, then Lutris**. This can be turned off.
+- With games from more than one launcher, each game is labelled with its launcher, and the dropdown gains per-launcher
+  filters plus a collections section per launcher.
+
+## How it reads Lutris
+
+| Data | Source |
+| --- | --- |
+| Games, play time, last played | `pga.db` (SQLite, read-only via Node's built-in `node:sqlite`) — native `~/.local/share/lutris` or Flatpak `~/.var/app/net.lutris.Lutris/data/lutris` |
+| Favorites, hidden, collections | Lutris categories: `favorite`, `.hidden`, and any other category |
+| Artwork | `coverart/<slug>.jpg`, `banners/<slug>.jpg`, `icons/hicolor/128x128/apps/lutris_<slug>.png` |
+| Duplicate matching | `service` + `service_id` (e.g. `steam:1145350`, `gog:1207658901`); for Steam-runner games added by hand, `game.appid` from the game's YAML config (`~/.config/lutris/games` or `<data>/games`) |
+| Launch | `lutris:rungameid/<id>` |
 
 ## How it reads Steam
 
@@ -75,7 +95,9 @@ src/lib/artwork-cache.ts  hi-res artwork download cache (download, refresh, prun
 src/lib/artwork-requests.ts  which art the current layout needs, per game
 src/lib/image/            .ico extraction and a minimal PNG encoder (no native deps)
 src/hooks/                useHiresArtwork: fills the cache in the background, re-renders as art arrives
-src/lib/library.ts        aggregates all launchers into one sorted list
+src/lib/library.ts        runs enabled launchers, removes duplicates by precedence, merges into one sorted list
+src/lib/steam/scan.ts     Steam launcher integration (all installs merged)
+src/lib/lutris/           Lutris launcher integration (paths, read-only SQLite, scan)
 src/lib/game-views.ts     dropdown views: installed / hidden / collections
 src/lib/visibility.ts     merged hidden rules (ours + Steam's, with "shown here" overrides)
 src/lib/games.ts          launcher-agnostic Game model, sorting, acronym keywords

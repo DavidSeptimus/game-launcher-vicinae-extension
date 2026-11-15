@@ -117,8 +117,15 @@ describe("visibility", () => {
 
   it("prunes overrides for games Steam no longer hides", () => {
     const state = { hidden: new Set<string>(), shown: new Set(["steam:2", "steam:9"]) };
-    expect(pruneShown(state, steamHidden)?.shown).toEqual(new Set(["steam:2"]));
-    expect(pruneShown({ hidden: new Set(), shown: new Set(["steam:2"]) }, steamHidden)).toBeUndefined();
+    const trusted = new Set(["steam"]);
+    expect(pruneShown(state, steamHidden, trusted)?.shown).toEqual(new Set(["steam:2"]));
+    expect(pruneShown({ hidden: new Set(), shown: new Set(["steam:2"]) }, steamHidden, trusted)).toBeUndefined();
+  });
+
+  it("leaves overrides alone for launchers whose hidden list wasn't read (disabled or unreadable)", () => {
+    const state = { hidden: new Set<string>(), shown: new Set(["steam:9", "lutris:4"]) };
+    expect(pruneShown(state, new Set(), new Set(["lutris"]))?.shown).toEqual(new Set(["steam:9"]));
+    expect(pruneShown(state, new Set(), new Set())).toBeUndefined();
   });
 });
 
@@ -162,25 +169,25 @@ describe("game views", () => {
   });
 });
 
-describe("hiddenInLauncherComplete", () => {
+describe("hiddenListsComplete", () => {
   function steamWithCollections(json: string | undefined) {
     const root = makeTempDir();
     writeFile(join(root, "steamapps/appmanifest_1.acf"), manifest({ appid: 1, name: "One", installdir: "One" }));
     if (json !== undefined) writeFile(join(root, "userdata/7/config/cloudstorage/cloud-storage-namespace-1.json"), json);
     return root;
   }
-  const scan = (root: string) => scanLibrary({ steamPath: root, home: makeTempDir() });
+  const scan = (root: string) => scanLibrary({ steamPath: root, home: makeTempDir(), enabledLaunchers: ["steam"] });
 
   it("is true for a full scan with a readable (or absent) collections file", () => {
-    expect(scan(steamWithCollections(cloudStorage({ hidden: { added: [1] } }))).hiddenInLauncherComplete).toBe(true);
-    expect(scan(steamWithCollections(undefined)).hiddenInLauncherComplete).toBe(true);
+    expect(scan(steamWithCollections(cloudStorage({ hidden: { added: [1] } }))).hiddenListsComplete.has("steam")).toBe(true);
+    expect(scan(steamWithCollections(undefined)).hiddenListsComplete.has("steam")).toBe(true);
   });
 
   it("is false when Steam's collections file is unreadable (e.g. mid-write)", () => {
-    expect(scan(steamWithCollections('[["user-collections.hidden", {"val')).hiddenInLauncherComplete).toBe(false);
+    expect(scan(steamWithCollections('[["user-collections.hidden", {"val')).hiddenListsComplete.has("steam")).toBe(false);
   });
 
   it("is false when no Steam install was found", () => {
-    expect(scanLibrary({ home: makeTempDir() }).hiddenInLauncherComplete).toBe(false);
+    expect(scanLibrary({ home: makeTempDir() }).hiddenListsComplete.size).toBe(0);
   });
 });

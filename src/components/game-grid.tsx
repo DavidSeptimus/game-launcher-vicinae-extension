@@ -1,6 +1,6 @@
 import { Grid, Icon, type Image } from "@vicinae/api";
 import { formatBytes, formatLastPlayed, formatPlaytime } from "../lib/format";
-import type { Game, GameArtwork } from "../lib/games";
+import { type Game, type GameArtwork, LAUNCHER_NAMES } from "../lib/games";
 import { pickArtwork, type ViewSettings } from "../lib/view-settings";
 import { GameActions } from "./game-actions";
 
@@ -13,6 +13,8 @@ export interface GameViewProps {
   settings: ViewSettings;
   /** Names of the launcher collections a game is in (shown in the details pane). */
   collectionNames: (gameId: string) => string[];
+  /** Label games with their launcher (when games come from more than one). */
+  showLauncher: boolean;
   onToggleHidden: (game: Game) => void;
   onClearCache: () => void;
   searchBarAccessory: React.ReactNode;
@@ -28,7 +30,13 @@ function gridContent(game: Game, settings: ViewSettings, hires: GameArtwork | un
 export function tooltipFor(game: Game): string {
   const playtime = formatPlaytime(game.playtimeMinutes);
   const size = formatBytes(game.sizeOnDisk);
-  return [game.title, formatLastPlayed(game.lastPlayed), playtime && `${playtime} on record`, size && `${size} on disk`]
+  return [
+    game.title,
+    LAUNCHER_NAMES[game.source],
+    formatLastPlayed(game.lastPlayed),
+    playtime && `${playtime} on record`,
+    size && `${size} on disk`,
+  ]
     .filter(Boolean)
     .join(" · ");
 }
@@ -53,7 +61,13 @@ export function GameGrid(props: GameViewProps) {
               key={game.id}
               id={game.id}
               title={settings.labels === "none" ? undefined : game.title}
-              subtitle={settings.labels === "full" ? formatLastPlayed(game.lastPlayed) : undefined}
+              subtitle={
+                settings.labels === "full"
+                  ? [props.showLauncher ? LAUNCHER_NAMES[game.source] : undefined, formatLastPlayed(game.lastPlayed)]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : undefined
+              }
               content={{ value: gridContent(game, settings, hires.get(game.id)), tooltip: tooltipFor(game) }}
               keywords={[game.title, ...game.keywords]}
               actions={

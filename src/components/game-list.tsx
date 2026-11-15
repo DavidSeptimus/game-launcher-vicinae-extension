@@ -1,7 +1,7 @@
 import { Action, Icon, type Image, List } from "@vicinae/api";
 import { useState } from "react";
 import { formatBytes, formatLastPlayed, formatPlaytime, markdownUrl } from "../lib/format";
-import type { Game, GameArtwork } from "../lib/games";
+import { type Game, type GameArtwork, LAUNCHER_NAMES } from "../lib/games";
 import { pickArtwork, pickListIcon } from "../lib/view-settings";
 import { GameActions } from "./game-actions";
 import type { GameViewProps } from "./game-grid";
@@ -9,6 +9,23 @@ import type { GameViewProps } from "./game-grid";
 /** Markdown image for a local path or URL, sized for the detail pane. */
 function markdownImage(source: string, alt: string): string {
   return `![${alt.replace(/[[\]]/g, "")}](${markdownUrl(source)}?raycast-width=460)`;
+}
+
+/** Display names for Lutris service ids. */
+const STORE_NAMES: Record<string, string> = {
+  gog: "GOG",
+  egs: "Epic Games Store",
+  steam: "Steam",
+  ubisoft: "Ubisoft Connect",
+  ea_app: "EA app",
+  battlenet: "Battle.net",
+  amazon: "Amazon Games",
+  itchio: "itch.io",
+  humblebundle: "Humble Bundle",
+};
+
+function storeName(service: string): string {
+  return STORE_NAMES[service] ?? service;
 }
 
 function listIcon(game: Game, hires: GameArtwork | undefined): Image.ImageLike {
@@ -31,7 +48,10 @@ function GameDetail(props: { game: Game; hires: GameArtwork | undefined; collect
           {playtime && <List.Item.Detail.Metadata.Label title="Playtime" text={playtime} />}
           {size && <List.Item.Detail.Metadata.Label title="Size on Disk" text={size} />}
           <List.Item.Detail.Metadata.Separator />
-          <List.Item.Detail.Metadata.Label title="Launcher" text="Steam" />
+          <List.Item.Detail.Metadata.Label title="Launcher" text={LAUNCHER_NAMES[game.source]} />
+          {game.lutris?.service && <List.Item.Detail.Metadata.Label title="Store" text={storeName(game.lutris.service)} />}
+          {game.lutris?.runner && <List.Item.Detail.Metadata.Label title="Runner" text={game.lutris.runner} />}
+          {game.lutris?.platform && <List.Item.Detail.Metadata.Label title="Platform" text={game.lutris.platform} />}
           {collections.length > 0 && <List.Item.Detail.Metadata.Label title="Collections" text={collections.join(", ")} />}
           {game.steam && <List.Item.Detail.Metadata.Label title="App ID" text={String(game.steam.appid)} />}
           {game.installDir && <List.Item.Detail.Metadata.Label title="Install Folder" text={game.installDir} />}
@@ -77,6 +97,7 @@ export function GameList(props: GameViewProps & { initialShowDetail: boolean }) 
                   showDetail
                     ? undefined
                     : [
+                        ...(props.showLauncher ? [{ tag: LAUNCHER_NAMES[game.source], tooltip: "Launcher" }] : []),
                         ...(playtime ? [{ text: playtime, icon: Icon.Hourglass, tooltip: "Playtime" }] : []),
                         { text: formatLastPlayed(game.lastPlayed).replace(/^Played /, ""), icon: Icon.Clock, tooltip: "Last played" },
                       ]

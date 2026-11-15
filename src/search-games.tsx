@@ -12,9 +12,10 @@ import {
   collectionOptions,
   type GameFilter,
   hiddenGameIds,
+  launcherOptions,
   resolveFilter,
 } from "./lib/game-views";
-import type { Game } from "./lib/games";
+import { type Game, LAUNCHER_NAMES, LAUNCHER_PRECEDENCE } from "./lib/games";
 import { loadHiddenState, saveHiddenState } from "./lib/hidden";
 import { emptyStateText, type LibraryScan, scanLibrary } from "./lib/library";
 import { resolveViewSettings } from "./lib/view-settings";
@@ -37,15 +38,21 @@ export default function SearchGames() {
   // Vicinae unloads the command when its window closes, so every open starts with a fresh scan
   // (and changing a preference re-runs it). There's no manual refresh: nothing to refresh between opens.
   const runScan = useCallback(() => {
+    const enabledLaunchers = LAUNCHER_PRECEDENCE.filter((l) =>
+      l === "steam" ? prefs.enableSteam !== false : prefs.enableLutris !== false,
+    );
     const result = scanLibrary({
+      enabledLaunchers,
       steamPath: prefs.steamPath,
       includeNonGames: prefs.includeNonGames,
+      lutrisPath: prefs.lutrisPath,
+      hideDuplicates: prefs.hideDuplicates !== false,
       appInfoCachePath: join(environment.supportPath, "appinfo-cache.json"),
     });
-    // A bad Steam Directory setting means nothing is scanned, so the empty state explains it (no toast needed).
+    // A bad launcher folder setting means nothing is found there; the empty state explains it (no toast needed).
     for (const w of result.warnings) console.warn(w);
     setScan(result);
-  }, [prefs.steamPath, prefs.includeNonGames]);
+  }, [prefs.enableSteam, prefs.enableLutris, prefs.steamPath, prefs.includeNonGames, prefs.lutrisPath, prefs.hideDuplicates]);
 
   useEffect(() => {
     // Defer so the loading state renders before the synchronous filesystem scan.
@@ -64,11 +71,11 @@ export default function SearchGames() {
     return () => clearTimeout(timer);
   }, [runScan]);
 
-  // Forget "show anyway" overrides for games Steam no longer hides — but only when Steam's hidden
-  // list was read completely; a failed or partial read would otherwise wipe the overrides.
+  // Forget "show anyway" overrides for games a launcher no longer hides — only for launchers whose
+  // hidden list was read completely; a failed read or a disabled launcher would otherwise wipe them.
   useEffect(() => {
-    if (!scan || !hiddenState || hiddenLoadFailed || !scan.hiddenInLauncherComplete) return;
-    const pruned = pruneShown(hiddenState, scan.hiddenInLauncher);
+    if (!scan || !hiddenState || hiddenLoadFailed) return;
+    const pruned = pruneShown(hiddenState, scan.hiddenInLauncher, scan.hiddenListsComplete);
     if (pruned) {
       setHiddenState(pruned);
       // Best effort: if this fails, the same overrides are simply pruned again next time.
@@ -104,7 +111,7 @@ export default function SearchGames() {
       await showToast({
         style: Toast.Style.Success,
         title: result.nowHidden ? `Hid ${game.title}` : `Unhid ${game.title}`,
-        message: result.stillHiddenInLauncher ? "Shown here, but still hidden in Steam" : undefined,
+        message: result.stillHiddenInLauncher ? `Shown here, but still hidden in ${LAUNCHER_NAMES[game.source]}` : undefined,
       });
     },
     [scan, hiddenState, hiddenLoadFailed],
@@ -115,7 +122,10 @@ export default function SearchGames() {
     [scan, hiddenState],
   );
   const collections = useMemo(() => (scan ? collectionOptions(scan, hidden) : []), [scan, hidden]);
-  const activeFilter = resolveFilter(filter, collections);
+  const launchers = useMemo(() => (scan ? launcherOptions(scan, hidden) : []), [scan, hidden]);
+  // Launcher filters and badges only make sense once games come from more than one launcher.
+  const multiLauncher = launchers.length > 1;
+  const activeFilter = resolveFilter(filter, collections, multiLauncher ? launchers : []);
   const games = useMemo(
     () => (scan && hiddenState ? applyFilter(scan, hidden, activeFilter) : []),
     [scan, hiddenState, hidden, activeFilter],
@@ -136,7 +146,7 @@ export default function SearchGames() {
 
   const empty =
     activeFilter === "hidden"
-      ? { title: "No hidden games", description: "Games hidden here or in Steam show up in this list." }
+      ? { title: "No hidden games", description: "Games hidden here or in their launcher show up in this list." }
       : activeFilter !== "visible"
         ? { title: "No games in this collection", description: "None of this collection's games are installed." }
         : scan
@@ -150,24 +160,37 @@ export default function SearchGames() {
     hires,
     settings,
     collectionNames,
+    showLauncher: multiLauncher,
     onToggleHidden,
     onClearCache,
     searchBarAccessory: (
       <Dropdown tooltip="Show" value={activeFilter} onChange={(v) => setFilter(v as GameFilter)}>
         <Dropdown.Item title="Installed Games" value="visible" icon={Icon.GameController} />
+        {multiLauncher &&
+          launchers.map((o) => (
+            <Dropdown.Item
+              key={o.value}
+              title={`${LAUNCHER_NAMES[o.launcher]} Games (${o.count})`}
+              value={o.value}
+              icon={Icon.AppWindow}
+            />
+          ))}
         <Dropdown.Item title={`Hidden Games (${hidden.size})`} value="hidden" icon={Icon.EyeDisabled} />
-        {collections.length > 0 && (
-          <Dropdown.Section title="Steam">
-            {collections.map((o) => (
-              <Dropdown.Item
-                key={o.value}
-                title={`${o.collection.name} (${o.count})`}
-                value={o.value}
-                icon={o.collection.kind === "favorites" ? Icon.Star : Icon.Folder}
-              />
-            ))}
-          </Dropdown.Section>
-        )}
+        {LAUNCHER_PRECEDENCE.map((launcher) => {
+          const own = collections.filter((o) => o.collection.source === launcher);
+          return own.length === 0 ? null : (
+            <Dropdown.Section key={launcher} title={LAUNCHER_NAMES[launcher]}>
+              {own.map((o) => (
+                <Dropdown.Item
+                  key={o.value}
+                  title={`${o.collection.name} (${o.count})`}
+                  value={o.value}
+                  icon={o.collection.kind === "favorites" ? Icon.Star : Icon.Folder}
+                />
+              ))}
+            </Dropdown.Section>
+          );
+        })}
       </Dropdown>
     ),
     emptyView: (

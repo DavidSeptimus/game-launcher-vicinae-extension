@@ -47,6 +47,7 @@ const game = (artwork: Game["artwork"]): Game => ({
   launchUri: "steam://rungameid/1",
   lastPlayed: 0,
   keywords: [],
+  storeIds: [],
   artwork,
 });
 

@@ -162,11 +162,11 @@ describe("scanning with an AppInfoStore", () => {
     rmSync(join(root, "steamapps/appmanifest_2.acf"));
     // A missing library folder makes the scan partial: nothing is forgotten.
     writeFile(join(root, "steamapps/libraryfolders.vdf"), libraryFolders([root, "/nonexistent/lib"]));
-    expect(scanLibrary({ steamPath: root, appInfoCachePath: cachePath, home }).complete).toBe(false);
+    expect(scanLibrary({ steamPath: root, appInfoCachePath: cachePath, home }).steamComplete).toBe(false);
     expect(AppInfoStore.load(cachePath).get(2)).toBeDefined();
 
     writeFile(join(root, "steamapps/libraryfolders.vdf"), libraryFolders([root]));
-    expect(scanLibrary({ steamPath: root, appInfoCachePath: cachePath, home }).complete).toBe(true);
+    expect(scanLibrary({ steamPath: root, appInfoCachePath: cachePath, home }).steamComplete).toBe(true);
     expect(AppInfoStore.load(cachePath).get(2)).toBeUndefined();
     expect(AppInfoStore.load(cachePath).get(1)).toBeDefined();
   });

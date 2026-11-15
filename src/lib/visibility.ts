@@ -44,10 +44,17 @@ export function toggleHidden(id: string, state: HiddenState, hiddenInLauncher: R
 
 /**
  * Drop "shown" overrides for games the launcher no longer hides, so that if
- * the user hides them in Steam again later, they're hidden here too.
+ * the user hides them in the launcher again later, they're hidden here too.
+ * Only overrides for launchers in `trusted` (whose hidden list was read
+ * completely) are touched; a disabled or unreadable launcher keeps its overrides.
  * Returns undefined when nothing changed.
  */
-export function pruneShown(state: HiddenState, hiddenInLauncher: ReadonlySet<string>): HiddenState | undefined {
-  const shown = new Set([...state.shown].filter((id) => hiddenInLauncher.has(id)));
+export function pruneShown(
+  state: HiddenState,
+  hiddenInLauncher: ReadonlySet<string>,
+  trusted: ReadonlySet<string>,
+): HiddenState | undefined {
+  const launcherOf = (id: string) => id.slice(0, id.indexOf(":"));
+  const shown = new Set([...state.shown].filter((id) => !trusted.has(launcherOf(id)) || hiddenInLauncher.has(id)));
   return shown.size === state.shown.size ? undefined : { hidden: state.hidden, shown };
 }

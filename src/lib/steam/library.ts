@@ -287,6 +287,7 @@ export function scanSteamInstall(install: SteamInstall, options: ScanOptions = {
       artwork: local.artwork,
       customArtwork: local.custom,
       keywords: [...acronyms(m.name), String(m.appid), m.installDir],
+      storeIds: [`steam:${m.appid}`],
       steam: {
         appid: m.appid,
         type: info?.type,

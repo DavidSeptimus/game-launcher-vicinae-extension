@@ -1,9 +1,17 @@
 /**
- * Launcher-agnostic game model. Each launcher integration (Steam today;
- * Heroic, Lutris, ... later) produces `Game`s, and the UI only uses this type.
+ * Launcher-agnostic game model. Each launcher integration (Steam, Lutris, ...)
+ * produces `Game`s, and the UI only uses this type.
  */
 
-export type GameSource = "steam";
+export type GameSource = "steam" | "lutris";
+
+export const LAUNCHER_NAMES: Record<GameSource, string> = { steam: "Steam", lutris: "Lutris" };
+
+/**
+ * When the same game is installed through several launchers and duplicates are
+ * hidden, the copy from the launcher listed first wins.
+ */
+export const LAUNCHER_PRECEDENCE: readonly GameSource[] = ["steam", "lutris"];
 
 export interface GameArtwork {
   /** 2:3 cover art (the Steam library capsule). */
@@ -34,6 +42,11 @@ export interface Game {
   customArtwork?: GameArtwork;
   /** Extra search terms (acronyms, app ids, install dir names). */
   keywords: string[];
+  /**
+   * Store identities, used to spot the same game in several launchers, e.g. ["steam:1145350"] for a
+   * Steam game, or ["gog:1207658901"] for a GOG game installed through Lutris.
+   */
+  storeIds: string[];
   steam?: {
     appid: number;
     /** Lower-cased appinfo type ("game", "tool", ...), when known. */
@@ -44,6 +57,35 @@ export interface Game {
     /** Local copy of that .ico, if Steam has cached one (steam/games/<hash>.ico). */
     localIco?: string;
   };
+  lutris?: {
+    id: number;
+    slug: string;
+    /** Lutris runner, e.g. "wine", "dosbox", "steam". */
+    runner?: string;
+    platform?: string;
+    /** Store the game came from via a Lutris service, e.g. "gog", "egs", "steam". */
+    service?: string;
+  };
+}
+
+/** What one launcher integration found. */
+export interface LauncherScan {
+  launcher: GameSource;
+  /** An install of the launcher was found. */
+  found: boolean;
+  /** Where we looked / what we found, for the empty state. */
+  sources: string[];
+  games: Game[];
+  collections: GameCollection[];
+  /** Games hidden in the launcher itself (e.g. Steam's Hidden collection, Lutris's ".hidden" category). */
+  hiddenInLauncher: Set<string>;
+  /** False if the launcher's hidden list couldn't be read completely, so it can't be trusted for pruning. */
+  hiddenListComplete: boolean;
+  /** False if part of the launcher's library couldn't be scanned (e.g. an unmounted drive). */
+  complete: boolean;
+  warnings: string[];
+  /** A preference for this launcher that couldn't be used. */
+  settingsProblem?: string;
 }
 
 /** A launcher-defined group of games (e.g. Steam Favorites or a user collection). */

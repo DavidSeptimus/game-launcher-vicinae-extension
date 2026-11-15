@@ -38,7 +38,8 @@ export function useHiresArtwork(scan: LibraryScan | undefined, settings: ViewSet
 
   // Prune before reading so the first render never points at files about to be deleted.
   useMemo(() => {
-    if (scan?.complete) cache.prune(scan.installedSteamAppids);
+    // Only when Steam was enabled and fully scanned: otherwise "not installed" can't be told from "not scanned".
+    if (scan?.steamComplete) cache.prune(scan.installedSteamAppids);
   }, [scan, cache]);
 
   // Whatever is already on disk, so the first render is sharp when the cache is warm.
