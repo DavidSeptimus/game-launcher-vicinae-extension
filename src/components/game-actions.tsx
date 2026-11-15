@@ -25,8 +25,16 @@ async function launch(game: Game): Promise<void> {
 }
 
 async function openSteamUri(uri: string): Promise<void> {
-  await open(uri);
-  await closeMainWindow({ clearRootSearch: true });
+  try {
+    await open(uri);
+    await closeMainWindow({ clearRootSearch: true });
+  } catch (err) {
+    await showToast({
+      style: Toast.Style.Failure,
+      title: "Couldn't open Steam",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**

@@ -63,8 +63,9 @@ describe("scanSteamInstall", () => {
     const { games, warnings, installedAppids, complete } = scanSteamInstall({ root, kind: "native" });
     expect(games.map((g) => g.steam?.appid).sort()).toEqual([100, 200]);
     expect(warnings).toEqual(["Steam library folder not found (drive not mounted?): /nonexistent/library"]);
-    // Tools are still "installed" (their cached art must survive pruning); the missing library makes the scan partial.
-    expect(installedAppids.sort((a, b) => a - b)).toEqual([100, 200, 1493710]);
+    // Tools and apps mid-download/update (300: StateFlags 1026, no FullyInstalled bit) aren't listed but are
+    // still on disk, so their cached art must survive pruning. The missing library makes the scan partial.
+    expect(installedAppids.sort((a, b) => a - b)).toEqual([100, 200, 300, 1493710]);
     expect(complete).toBe(false);
   });
 
@@ -141,5 +142,18 @@ describe("library folders", () => {
     symlinkSync(root, link);
     writeFile(join(root, "steamapps/libraryfolders.vdf"), libraryFolders([link, root]));
     expect(readLibraryFolders(root)).toEqual([root]);
+  });
+});
+
+describe("Steam root without steamapps/", () => {
+  it("is fine when every game lives in other library folders", () => {
+    const root = makeTempDir();
+    const lib = makeTempDir();
+    writeFile(join(root, "config/libraryfolders.vdf"), libraryFolders([root, lib]));
+    writeFile(join(lib, "steamapps/appmanifest_1.acf"), manifest({ appid: 1, name: "Elsewhere", installdir: "E" }));
+    const result = scanSteamInstall({ root, kind: "native" });
+    expect(result.complete).toBe(true);
+    expect(result.games.map((g) => g.title)).toEqual(["Elsewhere"]);
+    expect(result.warnings.filter((w) => w.includes("not mounted"))).toEqual([]);
   });
 });

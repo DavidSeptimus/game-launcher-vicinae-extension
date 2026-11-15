@@ -85,6 +85,12 @@ describe("format", () => {
   it("formats playtime and sizes", () => {
     expect(formatPlaytime(undefined)).toBeUndefined();
     expect(formatPlaytime(1)).toBe("1 minute");
+    expect(formatPlaytime(59)).toBe("59 minutes");
+    expect(formatPlaytime(60)).toBe("1 hour");
+    expect(formatPlaytime(90)).toBe("1.5 hours");
+    expect(formatPlaytime(120)).toBe("2 hours");
+    expect(formatPlaytime(594)).toBe("9.9 hours");
+    expect(formatPlaytime(599)).toBe("10 hours");
     expect(formatPlaytime(516)).toBe("8.6 hours");
     expect(formatPlaytime(15120)).toBe("252 hours");
     expect(formatBytes(11774185682)).toBe("11 GB");

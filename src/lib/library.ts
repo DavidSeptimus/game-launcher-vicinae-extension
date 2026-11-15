@@ -51,7 +51,6 @@ export function scanLibrary(options: LibraryOptions = {}): LibraryScan {
   if (installs.length === 0) complete = false;
   let settingsProblem: string | undefined;
   if (options.steamPath?.trim() && installs.length === 0) {
-    complete = false;
     settingsProblem = `The Steam Directory setting doesn't point at a Steam install (no steamapps folder): ${options.steamPath.trim()}`;
   }
   for (const install of installs) {

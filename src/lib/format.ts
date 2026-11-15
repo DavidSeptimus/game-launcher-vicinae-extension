@@ -19,12 +19,14 @@ function plural(n: number, unit: string): string {
   return `Played ${n} ${unit}${n === 1 ? "" : "s"} ago`;
 }
 
-/** 15120 -> "252 hours", 516 -> "8.6 hours", 42 -> "42 minutes". */
+/** 15120 -> "252 hours", 516 -> "8.6 hours", 60 -> "1 hour", 42 -> "42 minutes". */
 export function formatPlaytime(minutes: number | undefined): string | undefined {
   if (!minutes) return undefined;
   if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
-  const hours = minutes / 60;
-  return `${hours < 10 ? hours.toFixed(1) : Math.round(hours)} hours`;
+  // Round first, then pick the format, so 599 min is "10 hours" rather than "10.0 hours".
+  const tenths = Math.round(minutes / 6) / 10;
+  if (tenths < 10) return `${Number.isInteger(tenths) ? tenths : tenths.toFixed(1)} hour${tenths === 1 ? "" : "s"}`;
+  return `${Math.round(minutes / 60)} hours`;
 }
 
 export function formatBytes(bytes: number | undefined): string | undefined {

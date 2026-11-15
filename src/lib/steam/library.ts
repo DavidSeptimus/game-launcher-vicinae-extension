@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { acronyms, type Game, type GameCollection } from "../games";
 import { getNumber, getObject, getString, parseVdf, type VdfObject } from "../vdf/text";
@@ -13,7 +13,7 @@ import {
   indexCustomGrid,
   indexLegacyLibraryCache,
 } from "./artwork";
-import type { SteamInstall } from "./paths";
+import { safeRealpath, type SteamInstall } from "./paths";
 
 /** AppState.StateFlags bit meaning the app is fully installed (it may also need an update). */
 export const STATE_FULLY_INSTALLED = 4;
@@ -93,14 +93,6 @@ export function readLibraryFolders(steamRoot: string): string[] {
   // Resolve symlinks before de-duplicating: on Fedora Atomic /home -> /var/home, so the same
   // library can be listed under both spellings.
   return [...new Set(paths.map((p) => safeRealpath(p.replace(/\/+$/, ""))))];
-}
-
-function safeRealpath(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
 }
 
 export function parseManifest(text: string, libraryPath: string): SteamManifest | undefined {
@@ -206,7 +198,7 @@ export interface ScanOptions {
 export interface SteamScanResult {
   install: SteamInstall;
   games: Game[];
-  /** Every installed app id, including tools filtered out of `games`. */
+  /** Every app with a manifest on disk: tools filtered out of `games` and apps mid-update included. */
   installedAppids: number[];
   /** False when a library folder was missing (e.g. an unmounted drive), so the list may be partial. */
   complete: boolean;
@@ -226,15 +218,20 @@ export interface SteamScanResult {
 export function scanSteamInstall(install: SteamInstall, options: ScanOptions = {}): SteamScanResult {
   const warnings: string[] = [];
   const manifests = new Map<number, SteamManifest>();
+  // Every app with a manifest on disk, including ones mid-update or mid-download (no FullyInstalled
+  // bit). They aren't listed, but they are installed: their cached art and appinfo must survive pruning.
+  const onDisk = new Set<number>();
   let complete = true;
   for (const lib of readLibraryFolders(install.root)) {
     // Check steamapps/, not the folder itself: an unmounted drive often leaves an empty mount point behind.
-    if (!existsSync(join(lib, "steamapps"))) {
+    // The Steam root is exempt: it may legitimately have no steamapps/ when every game is on other drives.
+    if (lib !== install.root && !existsSync(join(lib, "steamapps"))) {
       warnings.push(`Steam library folder not found (drive not mounted?): ${lib}`);
       complete = false;
       continue;
     }
     for (const m of readManifests(lib)) {
+      onDisk.add(m.appid);
       if ((m.stateFlags & STATE_FULLY_INSTALLED) === 0) continue;
       // The same app can appear in two libraries mid-move; keep the first seen.
       if (!manifests.has(m.appid)) manifests.set(m.appid, m);
@@ -315,7 +312,7 @@ export function scanSteamInstall(install: SteamInstall, options: ScanOptions = {
   return {
     install,
     games,
-    installedAppids: [...manifests.keys()],
+    installedAppids: [...onDisk],
     complete,
     warnings,
     collections,

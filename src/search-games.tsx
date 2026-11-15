@@ -50,11 +50,17 @@ export default function SearchGames() {
   useEffect(() => {
     // Defer so the loading state renders before the synchronous filesystem scan.
     const timer = setTimeout(runScan, 0);
-    loadHiddenState().then(setHiddenState, (err) => {
-      console.warn("Couldn't load hidden games", err);
-      setHiddenLoadFailed(true);
-      setHiddenState(emptyHiddenState());
-    });
+    loadHiddenState().then(
+      (state) => {
+        setHiddenLoadFailed(false);
+        setHiddenState(state);
+      },
+      (err) => {
+        console.warn("Couldn't load hidden games", err);
+        setHiddenLoadFailed(true);
+        setHiddenState(emptyHiddenState());
+      },
+    );
     return () => clearTimeout(timer);
   }, [runScan]);
 
@@ -65,7 +71,8 @@ export default function SearchGames() {
     const pruned = pruneShown(hiddenState, scan.hiddenInLauncher);
     if (pruned) {
       setHiddenState(pruned);
-      void saveHiddenState(pruned);
+      // Best effort: if this fails, the same overrides are simply pruned again next time.
+      saveHiddenState(pruned).catch((err) => console.warn("Couldn't save hidden games", err));
     }
   }, [scan, hiddenState, hiddenLoadFailed]);
 
@@ -82,7 +89,18 @@ export default function SearchGames() {
       }
       const result = toggleHidden(game.id, hiddenState, scan.hiddenInLauncher);
       setHiddenState(result.state);
-      await saveHiddenState(result.state);
+      try {
+        await saveHiddenState(result.state);
+      } catch (err) {
+        // Don't show a change that won't survive a reopen.
+        setHiddenState(hiddenState);
+        await showToast({
+          style: Toast.Style.Failure,
+          title: `Couldn't ${result.nowHidden ? "hide" : "unhide"} ${game.title}`,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
       await showToast({
         style: Toast.Style.Success,
         title: result.nowHidden ? `Hid ${game.title}` : `Unhid ${game.title}`,

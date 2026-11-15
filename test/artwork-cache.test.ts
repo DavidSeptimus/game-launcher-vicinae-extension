@@ -178,6 +178,27 @@ describe("ArtworkCache icons", () => {
   });
 });
 
+describe("ArtworkCache clear during downloads", () => {
+  it("discards downloads that finish after the cache was cleared", async () => {
+    const dir = makeTempDir();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const impl = (async () => {
+      await gate; // hold the download open until the test clears the cache
+      return new Response(Buffer.from("late"), { status: 200, headers: { "content-type": "image/jpeg" } });
+    }) as unknown as typeof fetch;
+    const cache = new ArtworkCache(dir, { allowNetwork: true, fetch: impl });
+
+    const pending = cache.ensure({ appid: 1, kind: "portrait", hasLocal: true });
+    expect(cache.clear()).toEqual({ files: 0, bytes: 0 });
+    release();
+    expect(await pending).toBeUndefined();
+    expect(existsSync(join(dir, "steam/1"))).toBe(false);
+    // Downloads started after the clear work normally.
+    expect(await cache.ensure({ appid: 1, kind: "portrait", hasLocal: true })).toBe(join(dir, "steam/1/portrait@2x.jpg"));
+  });
+});
+
 describe("ArtworkCache maintenance", () => {
   function populated() {
     const dir = makeTempDir();

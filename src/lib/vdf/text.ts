@@ -25,59 +25,112 @@ export class VdfSyntaxError extends Error {
 
 type Token = { kind: "string"; value: string; offset: number } | { kind: "open" | "close"; offset: number };
 
+const enum Ch {
+  Tab = 9,
+  LineFeed = 10,
+  VerticalTab = 11,
+  FormFeed = 12,
+  CarriageReturn = 13,
+  Space = 32,
+  Quote = 34,
+  Slash = 47,
+  OpenBracket = 91,
+  Backslash = 92,
+  OpenBrace = 123,
+  CloseBrace = 125,
+  NoBreakSpace = 160,
+  Bom = 0xfeff,
+}
+
+function isSpace(c: number): boolean {
+  return c === Ch.Space || (c >= Ch.Tab && c <= Ch.CarriageReturn) || c === Ch.NoBreakSpace || c === Ch.Bom;
+}
+
+const UNESCAPE: Record<string, string> = { n: "\n", t: "\t", r: "\r" };
+
+/**
+ * Tokenizer tuned for multi-MB files (localconfig.vdf): char codes instead of
+ * regexes, and quoted strings without escapes are sliced in one go.
+ */
 function* tokenize(input: string): Generator<Token> {
   let i = 0;
   const n = input.length;
+  // Position of the next backslash at or after i; only ever moves forward, so finding it is O(n) overall.
+  let nextBackslash = input.indexOf("\\");
+  const backslashFrom = (from: number) => {
+    if (nextBackslash !== -1 && nextBackslash < from) nextBackslash = input.indexOf("\\", from);
+    return nextBackslash;
+  };
+
   while (i < n) {
-    const ch = input[i]!;
-    if (ch === " " || ch === "\t" || ch === "\r" || ch === "\n" || ch === "﻿") {
+    const c = input.charCodeAt(i);
+    if (isSpace(c)) {
       i++;
       continue;
     }
-    if (ch === "/" && input[i + 1] === "/") {
-      while (i < n && input[i] !== "\n") i++;
+    if (c === Ch.Slash && input.charCodeAt(i + 1) === Ch.Slash) {
+      const eol = input.indexOf("\n", i);
+      i = eol === -1 ? n : eol;
       continue;
     }
-    if (ch === "{") {
+    if (c === Ch.OpenBrace) {
       yield { kind: "open", offset: i++ };
       continue;
     }
-    if (ch === "}") {
+    if (c === Ch.CloseBrace) {
       yield { kind: "close", offset: i++ };
       continue;
     }
-    if (ch === "[") {
+    if (c === Ch.OpenBracket) {
       // Conditional like [$WIN32] or [!$X360]: skip it entirely.
       const end = input.indexOf("]", i);
       if (end === -1) throw new VdfSyntaxError("Unterminated conditional", i);
       i = end + 1;
       continue;
     }
-    if (ch === '"') {
-      const start = i++;
-      let out = "";
+    if (c === Ch.Quote) {
+      const start = i;
+      const close = input.indexOf('"', i + 1);
+      const bs = backslashFrom(i + 1);
+      if (close !== -1 && (bs === -1 || bs > close)) {
+        // Fast path: no escapes inside.
+        yield { kind: "string", value: input.slice(i + 1, close), offset: start };
+        i = close + 1;
+        continue;
+      }
+      // Slow path: unescape, collecting slices between escapes.
+      const parts: string[] = [];
+      let j = i + 1;
+      let segment = j;
       while (true) {
-        if (i >= n) throw new VdfSyntaxError("Unterminated string", start);
-        const c = input[i]!;
-        if (c === '"') {
-          i++;
+        if (j >= n) throw new VdfSyntaxError("Unterminated string", start);
+        const cc = input.charCodeAt(j);
+        if (cc === Ch.Quote) {
+          parts.push(input.slice(segment, j));
+          j++;
           break;
         }
-        if (c === "\\" && i + 1 < n) {
-          const next = input[i + 1]!;
-          out += next === "n" ? "\n" : next === "t" ? "\t" : next === "r" ? "\r" : next;
-          i += 2;
+        if (cc === Ch.Backslash && j + 1 < n) {
+          parts.push(input.slice(segment, j));
+          const next = input[j + 1]!;
+          parts.push(UNESCAPE[next] ?? next);
+          j += 2;
+          segment = j;
           continue;
         }
-        out += c;
-        i++;
+        j++;
       }
-      yield { kind: "string", value: out, offset: start };
+      yield { kind: "string", value: parts.join(""), offset: start };
+      i = j;
       continue;
     }
     // Unquoted token: runs until whitespace or a structural character.
     const start = i;
-    while (i < n && !/[\s{}"]/.test(input[i]!)) i++;
+    while (i < n) {
+      const cc = input.charCodeAt(i);
+      if (isSpace(cc) || cc === Ch.OpenBrace || cc === Ch.CloseBrace || cc === Ch.Quote) break;
+      i++;
+    }
     yield { kind: "string", value: input.slice(start, i), offset: start };
   }
 }

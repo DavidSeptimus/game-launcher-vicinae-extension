@@ -76,9 +76,14 @@ export interface ArtworkCacheOptions {
   now?: () => number;
 }
 
+/** Thrown when a download finishes after the cache was cleared; its result is discarded. */
+class StaleWriteError extends Error {}
+
 export class ArtworkCache {
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
+  /** Bumped by clear(): downloads that started before a clear don't write their results. */
+  private epoch = 0;
 
   constructor(
     readonly dir: string,
@@ -138,20 +143,22 @@ export class ArtworkCache {
   /** Download (or extract) the artwork if needed. Resolves to the best cached path, or undefined if unavailable. */
   async ensure(req: ArtworkRequest): Promise<string | undefined> {
     if (!this.needsFetch(req)) return this.get(req.appid, req.kind, req.hasLocal);
+    const epoch = this.epoch;
     try {
-      const saved = req.kind === "icon" ? await this.fetchIcon(req) : await this.fetchImage(req, req.kind);
-      if (!saved) this.write(this.markerFor(req.appid, req.kind), Buffer.from(String(this.now())));
+      const saved = req.kind === "icon" ? await this.fetchIcon(req, epoch) : await this.fetchImage(req, req.kind, epoch);
+      if (!saved) this.write(this.markerFor(req.appid, req.kind), Buffer.from(String(this.now())), epoch);
       else this.remove(this.markerFor(req.appid, req.kind));
     } catch {
-      // Network errors are transient: don't write a marker, try again next time.
+      // Network errors are transient (no marker, so we try again next time); a StaleWriteError means
+      // the cache was cleared mid-download and the result was rightly dropped.
     }
     return this.get(req.appid, req.kind, req.hasLocal);
   }
 
-  private async fetchImage(req: ArtworkRequest, kind: ImageKind): Promise<boolean> {
+  private async fetchImage(req: ArtworkRequest, kind: ImageKind, epoch: number): Promise<boolean> {
     const hi = await this.download(cdnUrl(req.appid, kind, "2x"));
     if (hi) {
-      this.write(this.file(req.appid, `${kind}@2x.jpg`), hi);
+      this.write(this.file(req.appid, `${kind}@2x.jpg`), hi, epoch);
       this.remove(this.file(req.appid, `${kind}@1x.jpg`)); // superseded
       return true;
     }
@@ -159,11 +166,11 @@ export class ArtworkCache {
     // (a refresh that 404s keeps the old 2x and records the miss instead).
     if (req.hasLocal || existsSync(this.file(req.appid, `${kind}@2x.jpg`))) return false;
     const lo = await this.download(cdnUrl(req.appid, kind, "1x"));
-    if (lo) this.write(this.file(req.appid, `${kind}@1x.jpg`), lo);
+    if (lo) this.write(this.file(req.appid, `${kind}@1x.jpg`), lo, epoch);
     return Boolean(lo);
   }
 
-  private async fetchIcon(req: ArtworkRequest): Promise<boolean> {
+  private async fetchIcon(req: ArtworkRequest, epoch: number): Promise<boolean> {
     let ico: Buffer | undefined;
     if (req.localIco && existsSync(req.localIco)) ico = readFileSync(req.localIco);
     else if (this.options.allowNetwork && req.clientIcon) ico = await this.download(clientIconUrl(req.appid, req.clientIcon));
@@ -175,7 +182,7 @@ export class ArtworkCache {
       return false;
     }
     if (!icon || icon.size < MIN_SHARP_ICON) return false;
-    this.write(this.file(req.appid, "icon.png"), icon.png);
+    this.write(this.file(req.appid, "icon.png"), icon.png, epoch);
     return true;
   }
 
@@ -190,8 +197,9 @@ export class ArtworkCache {
     return body.length > 0 && isImage ? body : undefined;
   }
 
-  /** Atomic write so a half-downloaded file is never rendered. */
-  private write(path: string, data: Buffer): void {
+  /** Atomic write so a half-downloaded file is never rendered. Refuses writes from before a clear(). */
+  private write(path: string, data: Buffer, epoch: number): void {
+    if (epoch !== this.epoch) throw new StaleWriteError();
     mkdirSync(join(path, ".."), { recursive: true });
     const tmp = `${path}.${process.pid}.tmp`;
     writeFileSync(tmp, data);
@@ -232,6 +240,7 @@ export class ArtworkCache {
 
   /** Delete everything this cache has downloaded or extracted, including "missing" markers. */
   clear(): { files: number; bytes: number } {
+    this.epoch++;
     const usage = this.usage();
     rmSync(join(this.dir, "steam"), { recursive: true, force: true });
     return usage;

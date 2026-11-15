@@ -27,7 +27,8 @@ export function isSteamRoot(path: string): boolean {
   return existsSync(join(path, "steamapps")) || existsSync(join(path, "config/libraryfolders.vdf"));
 }
 
-function safeRealpath(path: string): string {
+/** realpath, or the path unchanged if it can't be resolved (e.g. it doesn't exist). */
+export function safeRealpath(path: string): string {
   try {
     return realpathSync(path);
   } catch {

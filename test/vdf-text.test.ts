@@ -50,6 +50,15 @@ root {
     expect(getKey(undefined, "x")).toBeUndefined();
   });
 
+  it("handles strings with and without escapes in the same document (fast and slow paths)", () => {
+    const doc = parseVdf(`"a" "plain" "b" "C:\\\\x" "c" "plain again" "d" "tab\\there" "e" "\\"quoted\\""`);
+    expect(doc).toEqual({ a: "plain", b: "C:\\x", c: "plain again", d: "tab\there", e: '"quoted"' });
+  });
+
+  it("treats all whitespace, including tabs and non-breaking spaces, as separators", () => {
+    expect(parseVdf("k\u00a0v\fk2\vv2")).toEqual({ k: "v", k2: "v2" });
+  });
+
   it("strips a UTF-8 BOM", () => {
     expect(parseVdf(`\uFEFF"k" "v"`)).toEqual({ k: "v" });
   });
