@@ -179,6 +179,15 @@
       "required": false
     },
     {
+      "name": "enableHeroic",
+      "title": "Heroic",
+      "label": "Heroic",
+      "description": "Show games installed through Heroic.",
+      "type": "checkbox",
+      "default": true,
+      "required": false
+    },
+    {
       "name": "hideDuplicates",
       "title": "Merge Duplicates",
       "label": "Merge Duplicates",
@@ -217,6 +226,13 @@
       "description": "Also list the store apps Lutris installs to run games, such as the Epic Games Store and Battle.net.",
       "type": "checkbox",
       "default": false,
+      "required": false
+    },
+    {
+      "name": "heroicPath",
+      "title": "Heroic Folder",
+      "description": "Only use the Heroic config folder at this path (the one containing config.json). Leave empty to find it automatically.",
+      "type": "directory",
       "required": false
     }
   ],

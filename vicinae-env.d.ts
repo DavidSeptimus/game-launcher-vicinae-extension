@@ -12,6 +12,9 @@ type ExtensionPreferences = {
 	/** Lutris - Show games installed through Lutris. */
 	"enableLutris"?: boolean;
 
+	/** Heroic - Show games installed through Heroic. */
+	"enableHeroic"?: boolean;
+
 	/** Merge Duplicates - Show a game installed in several launchers as one entry. Choose which launcher opens it with the Launcher Priority action. */
 	"hideDuplicates"?: boolean;
 
@@ -26,6 +29,9 @@ type ExtensionPreferences = {
 
 	/** Show Lutris Store Clients - Also list the store apps Lutris installs to run games, such as the Epic Games Store and Battle.net. */
 	"includeStoreClients"?: boolean;
+
+	/** Heroic Folder - Only use the Heroic config folder at this path (the one containing config.json). Leave empty to find it automatically. */
+	"heroicPath"?: string;
 }
 
 declare type Preferences = ExtensionPreferences

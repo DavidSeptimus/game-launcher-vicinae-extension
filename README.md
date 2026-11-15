@@ -10,6 +10,7 @@ Supported launchers:
 - **Steam**: native, Flatpak or Snap.
 - **Lutris**: native or Flatpak. Covers games Lutris manages from GOG, Epic, Ubisoft and other stores, plus games you
   added by hand.
+- **Heroic**: native or Flatpak. Covers Epic, GOG, Amazon and ZOOM games, plus apps you added to Heroic yourself.
 
 Everything is read from the launchers' own files on disk. Nothing is sent anywhere except optional artwork downloads
 (see [Privacy](#privacy-and-files)).
@@ -19,12 +20,14 @@ Everything is read from the launchers' own files on disk. Nothing is sent anywhe
 - **One searchable list** of installed games from every enabled launcher, most recently played first, as an
   artwork grid or a list.
 - **Fast matching** on titles, acronyms (the initials of a long title), Steam App IDs and Lutris slugs.
-- **One entry per game across launchers.** A game installed through both Steam and Lutris shows up once. Enter opens
-  it with your preferred launcher, and "Launch with …" actions open it with the others.
-- **Your launchers' organisation, reused**: Steam's Favorites, Hidden and manual collections, and Lutris's favorite,
-  hidden and other categories, appear in the filter dropdown and are respected when hiding.
-- **Sharp artwork on HiDPI screens**: optional high-resolution covers, banners and icons for Steam games, cached on
-  disk. Custom artwork you set in Steam always wins.
+- **One entry per game across launchers.** A game installed through several launchers (e.g. Steam and Lutris, or
+  Lutris and Heroic) shows up once. Enter opens it with your preferred launcher, and "Launch with …" actions open it
+  with the others.
+- **Your launchers' organisation, reused**: Steam's Favorites, Hidden and manual collections, Lutris's favorite,
+  hidden and other categories, and Heroic's favourites, hidden list and custom categories appear in the filter
+  dropdown and are respected when hiding.
+- **Sharp artwork on HiDPI screens**: optional high-resolution covers, banners and icons for Steam and Heroic games,
+  cached on disk. Custom artwork you set in Steam always wins.
 - **Tools and store clients filtered out**: Proton, the Steam Linux Runtime and redistributables don't clutter the
   list, nor do the store clients Lutris installs to run your games (Epic Games Store, EA app, Ubisoft Connect,
   Battle.net, Origin, Steam). Both can be shown in Settings.
@@ -90,16 +93,17 @@ The action panel itself opens with Vicinae's usual shortcut (Ctrl+B).
 The dropdown next to the search bar switches between:
 
 - **Installed Games**: everything that isn't hidden.
-- **Steam Games / Lutris Games**: shown when games come from more than one launcher. A game installed in both counts
-  for both.
+- **Steam Games / Lutris Games / Heroic Games**: shown when games come from more than one launcher. A game installed
+  in several counts for each.
 - **Hidden Games**: games hidden here or in their launcher.
-- **Collections**, grouped by launcher: Steam's Favorites and manual collections, and Lutris's favorite and custom
-  categories. Only collections with at least one visible installed game are listed.
+- **Collections**, grouped by launcher: Steam's Favorites and manual collections, Lutris's favorite and custom
+  categories, and Heroic's favourites and custom categories. Only collections with at least one visible installed
+  game are listed.
 
 ### Hiding games
 
 A game is hidden if you hid it here **or** it's hidden in its own launcher (Steam's Hidden collection, Lutris's
-hidden category). The extension never writes to a launcher's data, so:
+hidden category, Heroic's hidden list). The extension never writes to a launcher's data, so:
 
 - Unhiding a game the launcher hides shows it here only; the launcher keeps hiding it. The toast says so.
 - Hiding it again here restores the launcher's choice.
@@ -119,11 +123,13 @@ two groups.
 | --- | --- | --- |
 | Steam | On | Show games installed through Steam. |
 | Lutris | On | Show games installed through Lutris. |
+| Heroic | On | Show games installed through Heroic. |
 | Merge Duplicates | On | Show a game installed in several launchers as one entry (see [Multiple launchers](#multiple-launchers)). |
 | Steam Folder | Auto | Use only the Steam install in this folder instead of auto-detecting. |
 | Show Steam Tools | Off | Also list Proton, the Steam Linux Runtime and other non-game Steam apps. |
 | Lutris Folder | Auto | Use only the Lutris data folder at this path (the one containing `pga.db`). |
 | Show Lutris Store Clients | Off | Also list the store apps Lutris installs to run games, such as the Epic Games Store and Battle.net. |
+| Heroic Folder | Auto | Use only the Heroic config folder at this path (the one containing `config.json`). |
 
 **Commands › Search Games** (how games are shown):
 
@@ -143,16 +149,17 @@ found, or in a toast when other launchers still have games.
 - **Turning launchers on and off**: a launcher turned off in Settings isn't scanned at all. Its cached data and your
   hidden-game choices are kept for when you turn it back on.
 - **Matching duplicates**: games are matched across launchers by store identity, e.g. a Steam game that Lutris
-  manages through its Steam integration, or a Steam-runner game added to Lutris by hand (its Steam App ID is read
-  from the Lutris game config). Copies within the *same* launcher are never merged.
+  manages through its Steam integration, a Steam-runner game added to Lutris by hand (its Steam App ID is read
+  from the Lutris game config), or the same Epic or GOG game installed through both Lutris and Heroic. Copies within
+  the *same* launcher are never merged.
 - **Merged entries**: Enter uses your preferred launcher; the others become "Launch with …" actions. Last played and
   playtime take the most recent and largest value across copies (not the sum, which would double-count). Missing
   artwork is filled in from other copies, and Steam actions stay available even when Lutris is preferred. Turn off
   **Merge Duplicates** to list every copy separately.
 - **Launcher Priority…** (in the action panel or the empty state) sets which launcher is preferred. Use Move Up /
-  Move Down (Ctrl+Shift+↑ / ↓) or Reset to Default Order. The default is Steam, then Lutris. Changes apply
-  immediately.
-- **One install per launcher**: if you have, say, both native and Flatpak Lutris, only the first one found is used
+  Move Down (Ctrl+Shift+↑ / ↓) or Reset to Default Order. The default is Steam, then Lutris, then Heroic.
+  Changes apply immediately.
+- **One install per launcher**: if you have, say, both native and Flatpak Lutris or Heroic, only the first one found is used
   (native, then Flatpak, then Snap for Steam), or the one the folder setting points at. The others are mentioned in
   the empty state and logs. Every library folder of the chosen Steam install is scanned, including ones on other
   drives.
@@ -167,23 +174,30 @@ found, or in a toast when other launchers still have games.
   is never replaced by downloads.
 - **Lutris**: covers, banners and icons come from Lutris's own folders. Lutris stores small images (264×352 covers,
   184×69 banners) and there is no higher-resolution source, so they can look soft next to Steam's.
-- **Only what's on screen is downloaded**: covers for the cover grid, banners for the banner grid, icons and banners
-  for the list layouts. Hero and logo art is already full size locally.
-- **Cache upkeep**: cached files are refreshed after 30 days. Art Steam doesn't have is retried after 7 days, and
-  network errors on the next open. Art for uninstalled games is removed automatically, but not while a library folder
+- **Heroic**: the extension uses the icons and the small copies of store art Heroic keeps (its image cache only
+  holds what Heroic's own UI has shown). With **Download High-Quality Artwork** on, it downloads the store artwork
+  listed in Heroic's library instead (Epic art at a HiDPI-friendly size), and caches it.
+- **Only what's on screen is downloaded**: covers for the cover grid, banners for the banner grid, heroes and logos
+  for those grids, and icons and banners for the list layouts. Steam's hero and logo art is already full size
+  locally, so only Heroic games download those.
+- **Cache upkeep**: Steam art is refreshed after 30 days; Heroic art is downloaded again when the store's image URL
+  changes. Missing art is retried after 7 days, and network errors on the next open. Art for uninstalled games is removed automatically, but not while a library folder
   is unreachable (e.g. an unplugged drive).
 - **Clear Artwork Cache…** deletes everything downloaded. Launchers' own art and your custom art are not touched.
 
 ## Privacy and files
 
-**Network access**: the only automatic network traffic is artwork downloads from `cdn.cloudflare.steamstatic.com`.
-Each request contains only a Steam App ID and an image name. Turn off **Download High-Quality Artwork** to disable
-it. "View on ProtonDB" opens your browser only when you choose it. No analytics, no accounts, no API keys.
+**Network access**: the only automatic network traffic is artwork downloads: from `cdn.cloudflare.steamstatic.com`
+for Steam games (each request contains only a Steam App ID and an image name), and for Heroic games from the image
+URLs in Heroic's library, which point at the stores' own CDNs (e.g. `cdn1.epicgames.com`, `images.gog-statics.com`).
+Turn off **Download High-Quality Artwork** to disable it. "View on ProtonDB" opens your browser only when you choose it. No analytics, no accounts, no API keys.
 
 **Files read**: the launchers' own data, read-only:
 
 - Steam: manifests, `appinfo.vdf`, `localconfig.vdf`, and the local copy of its collections.
 - Lutris: `pga.db`, opened read-only, plus its game configs and artwork folders.
+- Heroic: its installed-games lists, library caches, play time and settings (JSON), plus its icon and image caches.
+  Account files (logins, cookies) are never read.
 
 **Files written**: under `~/.local/share/vicinae/support/game-launcher/`:
 
@@ -199,12 +213,13 @@ Vicinae's `~/.config/vicinae/settings.json`.
 ## Limitations
 
 - Steam's **dynamic (rule-based) collections** aren't shown; Favorites and manual collections are.
-- Hidden status and collections are **read-only**: hiding a game here doesn't hide it in Steam or Lutris.
+- Hidden status and collections are **read-only**: hiding a game here doesn't hide it in its launcher.
 - **One install per launcher**, as described above.
 - Duplicate matching relies on **store identity**. Two unrelated entries for the same game with no store link (e.g. a
   manually added Lutris game pointing at a GOG installer) aren't merged.
 - **Lutris artwork is low resolution**, as described above.
-- Heroic (Epic, GOG, Amazon) isn't supported yet.
+- Heroic's favourites and hidden list record a game's app ID but not its store, so an entry applies to that ID in
+  every Heroic store (in practice, IDs don't clash across stores).
 
 ## How it works
 
@@ -230,6 +245,20 @@ Vicinae's `~/.config/vicinae/settings.json`.
 | Artwork | `coverart/<slug>.jpg`, `banners/<slug>.jpg`, `~/.local/share/icons/hicolor/128x128/apps/lutris_<slug>.png` |
 | Launch | `lutris:rungameid/<id>` |
 
+### Heroic
+
+Paths are relative to Heroic's config folder (`~/.config/heroic`, or `~/.var/app/com.heroicgameslauncher.hgl/config/heroic` for the Flatpak).
+
+| Data | Source |
+| --- | --- |
+| Installed games | `legendaryConfig/legendary/installed.json` and `third-party-installed.json` (Epic), `gog_store/installed.json`, `nile_config/nile/installed.json` (Amazon), `zoom_store/installed.json`, `sideload_apps/library.json`. DLC is left out. |
+| Titles, art URLs | `store_cache/<store>_library.json` |
+| Last played, playtime | `store/timestamp.json` |
+| Favourites, hidden, categories | `store/config.json` (`games.favourites`, `games.hidden`, `games.customCategories`) |
+| Duplicate matching | The store and app ID, under Lutris's service names (e.g. `egs:<app name>`, `gog:<product id>`, `amazon:…`, `zoomplatform:…`) |
+| Artwork | `icons/<app name>.jpg/.png`, `images-cache/<sha256 of the image URL>`, store art URLs from the library caches |
+| Launch | `heroic://launch?appName=<app name>&runner=<store>` |
+
 ## Development
 
 Toolchain: Node 22 (ideally the same one Vicinae uses) and pnpm. There are no native dependencies; the VDF parsers,
@@ -238,7 +267,7 @@ the `.ico` extractor and the PNG encoder are all plain TypeScript.
 ```bash
 pnpm install
 pnpm dev          # live-reloading dev session inside the running Vicinae
-pnpm test         # unit tests (synthetic Steam/Lutris fixtures, no real installs needed)
+pnpm test         # unit tests (synthetic Steam/Lutris/Heroic fixtures, no real installs needed)
 pnpm typecheck
 pnpm lint         # validates the extension manifest
 pnpm build        # builds and installs into ~/.local/share/vicinae/extensions
@@ -260,14 +289,15 @@ src/lib/games.ts                launcher-independent Game model, launcher names 
 src/lib/library.ts              scanLaunchers (disk) + combineLibrary (merge by priority, in memory), empty states
 src/lib/steam/                  Steam integration: install detection, manifests, appinfo.vdf, collections, artwork
 src/lib/lutris/                 Lutris integration: install detection, read-only SQLite, categories, artwork
+src/lib/heroic/                 Heroic integration: install detection, per-store JSON lists, favourites, artwork
 src/lib/vdf/                    text and binary KeyValues (VDF) parsers
 src/lib/image/                  .ico extraction and a minimal PNG encoder
-src/lib/artwork-cache.ts        high-resolution artwork cache: download, refresh, prune, clear
+src/lib/artwork-cache.ts        high-resolution artwork cache (Steam CDN, Heroic art URLs): download, refresh, prune, clear
 src/lib/artwork-requests.ts     which artwork the current layout needs
 src/lib/visibility.ts           hiding rules: ours and the launcher's, with "shown here" overrides
 src/lib/game-views.ts           dropdown views: installed, per launcher, hidden, collections
 src/lib/launcher-priority.ts    launcher order: normalize, load, save, move
-test/                           vitest suites and fixtures (fake Steam/Lutris installs, appinfo/.ico writers)
+test/                           vitest suites and fixtures (fake Steam/Lutris/Heroic installs, appinfo/.ico writers)
 assets/, assets-src/            extension icon (PNG), its SVG source, and alternate colour schemes
 docs/screenshots/               README screenshots (WebP)
 ```
@@ -296,14 +326,14 @@ over `assets-src/extension_icon.svg` and re-render. Only `assets/` ships with th
 
 This extension was developed with AI assistance. Most of the code, tests and documentation were written by
 Anthropic's Claude, using Claude Code, under the maintainer's direction. The maintainer made the design decisions,
-reviewed the changes, and tested the extension on their own Linux system with Steam and Lutris. The code was also
+reviewed the changes, and tested the extension on their own Linux system with Steam, Lutris and Heroic. The code was also
 checked by AI code reviews, and issues found were fixed with regression tests. Please report anything that looks
 wrong.
 
 ## Acknowledgements
 
 Inspired by [GamesLauncher](https://github.com/KrystianLesniak/Flow.Launcher.Plugin.GamesLauncher) for Flow
-Launcher. Not affiliated with Valve, Lutris or Vicinae.
+Launcher. Not affiliated with Valve, Lutris, Heroic Games Launcher or Vicinae.
 
 ## License
 

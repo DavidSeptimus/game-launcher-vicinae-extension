@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { type ArtworkRequest, type CachedKind, forEachLimit } from "../lib/artwork-cache";
+import { type ArtworkRequest, artKeyOf, type CachedKind, forEachLimit, isUrlRequest } from "../lib/artwork-cache";
 import { type ArtworkSource, openArtworkCache } from "../lib/artwork-location";
-import { neededKinds, requestFor } from "../lib/artwork-requests";
+import { artKeyFor, neededKinds, requestFor } from "../lib/artwork-requests";
 import type { Game, GameArtwork } from "../lib/games";
 import type { LibraryScan } from "../lib/library";
 import type { ViewSettings } from "../lib/view-settings";
@@ -9,19 +9,24 @@ import type { ViewSettings } from "../lib/view-settings";
 const CONCURRENCY = 6;
 const FLUSH_MS = 150;
 
-/** Downloaded artwork, keyed by Steam app id (stable whichever launcher's copy an entry is shown as). */
-export type HiresArtMap = ReadonlyMap<number, GameArtwork>;
+/**
+ * Downloaded artwork, keyed by art key: "steam:<appid>" or a Heroic game id (see artKeyFor), so it's
+ * stable whichever launcher's copy an entry is shown as.
+ */
+export type HiresArtMap = ReadonlyMap<string, GameArtwork>;
 
-/** The downloaded artwork for a (possibly merged) game, if it has a Steam copy. */
+/** The downloaded artwork for a (possibly merged) game, if it has a copy with downloadable art. */
 export function hiresFor(game: Game, art: HiresArtMap): GameArtwork | undefined {
-  return game.steam ? art.get(game.steam.appid) : undefined;
+  const key = artKeyFor(game);
+  return key ? art.get(key) : undefined;
 }
 
-function setArt(map: Map<number, GameArtwork>, appid: number, kind: CachedKind, path: string) {
-  map.set(appid, { ...map.get(appid), [kind]: path });
+function setArt(map: Map<string, GameArtwork>, key: string, kind: CachedKind, path: string) {
+  map.set(key, { ...map.get(key), [kind]: path });
 }
 
 function requestKey(r: ArtworkRequest): string {
+  if (isUrlRequest(r)) return [r.runner, r.appName, r.kind, r.url].join("|");
   return [r.appid, r.kind, r.hasLocal ? 1 : 0, r.clientIcon ?? "", r.localIco ?? ""].join("|");
 }
 
@@ -38,8 +43,8 @@ export interface HiresArtwork {
  * downloads anything missing in the background and re-renders as files arrive. Also prunes art for
  * uninstalled games once per complete scan.
  *
- * Everything here is keyed on the Steam games and the kinds of art the layout needs, not on the
- * merged entries, so re-merging (e.g. a Launcher Priority change) doesn't re-prune or restart downloads.
+ * Everything here is keyed on the art keys and the kinds of art the layout needs, not on the merged
+ * entries, so re-merging (e.g. a Launcher Priority change) doesn't re-prune or restart downloads.
  */
 export function useHiresArtwork(scan: LibraryScan | undefined, settings: ViewSettings, source: ArtworkSource): HiresArtwork {
   const kinds = neededKinds(settings);
@@ -51,10 +56,12 @@ export function useHiresArtwork(scan: LibraryScan | undefined, settings: ViewSet
   // straight from the raw scan, so they only change when the disk is rescanned, not on a re-merge.
   const installedSteamAppids = scan?.installedSteamAppids;
   const steamComplete = scan?.steamComplete ?? false;
+  const installedHeroicGames = scan?.installedHeroicGames;
   useMemo(() => {
-    // Only when Steam was enabled and fully scanned: otherwise "not installed" can't be told from "not scanned".
+    // Only for launchers enabled and fully scanned: otherwise "not installed" can't be told from "not scanned".
     if (steamComplete && installedSteamAppids) cache.prune(installedSteamAppids);
-  }, [installedSteamAppids, steamComplete, cache]);
+    if (installedHeroicGames) cache.pruneHeroic(installedHeroicGames);
+  }, [installedSteamAppids, steamComplete, installedHeroicGames, cache]);
 
   // The cache requests for what's on screen, de-duplicated, plus a key that only changes when they do.
   const allRequests: ArtworkRequest[] = [];
@@ -70,12 +77,12 @@ export function useHiresArtwork(scan: LibraryScan | undefined, settings: ViewSet
 
   // Whatever is already on disk, so the first render is sharp when the cache is warm.
   const initial = useMemo(() => {
-    const map = new Map<number, GameArtwork>();
+    const map = new Map<string, GameArtwork>();
     for (const req of requests) {
       // In local-only mode, only use icons extracted from Steam's own local .ico files.
-      if (source === "local" && !(req.kind === "icon" && req.localIco)) continue;
-      const path = cache.get(req.appid, req.kind, req.hasLocal);
-      if (path) setArt(map, req.appid, req.kind, path);
+      if (source === "local" && !(!isUrlRequest(req) && req.kind === "icon" && req.localIco)) continue;
+      const path = cache.get(req);
+      if (path) setArt(map, artKeyOf(req), req.kind, path);
     }
     return map;
   }, [requests, cache, source, generation]);
@@ -88,14 +95,14 @@ export function useHiresArtwork(scan: LibraryScan | undefined, settings: ViewSet
     if (jobs.length === 0) return;
 
     let cancelled = false;
-    let pending: { appid: number; kind: CachedKind; path: string }[] = [];
+    let pending: { key: string; kind: CachedKind; path: string }[] = [];
     const flush = () => {
       if (cancelled || pending.length === 0) return;
       const batch = pending;
       pending = [];
       setArtState((prev) => {
         const next = new Map(prev);
-        for (const p of batch) setArt(next, p.appid, p.kind, p.path);
+        for (const p of batch) setArt(next, p.key, p.kind, p.path);
         return next;
       });
     };
@@ -104,7 +111,7 @@ export function useHiresArtwork(scan: LibraryScan | undefined, settings: ViewSet
     forEachLimit(jobs, CONCURRENCY, async (req) => {
       if (cancelled) return;
       const path = await cache.ensure(req);
-      if (path) pending.push({ appid: req.appid, kind: req.kind, path });
+      if (path) pending.push({ key: artKeyOf(req), kind: req.kind, path });
     })
       .catch((err) => console.warn("Artwork download failed", err))
       .finally(() => {

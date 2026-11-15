@@ -4,10 +4,12 @@ import {
   type GameArtwork,
   type GameCollection,
   type GameSource,
+  type HeroicRef,
   LAUNCHER_NAMES,
   LAUNCHER_PRECEDENCE,
   type LauncherScan,
 } from "./games";
+import { scanHeroic } from "./heroic/scan";
 import { normalizePriority } from "./launcher-priority";
 import { scanLutris } from "./lutris/scan";
 import { scanSteam } from "./steam/scan";
@@ -20,6 +22,7 @@ export interface LibraryOptions {
   lutrisPath?: string;
   /** Also list launcher store clients (Lutris's Epic Games Store, Battle.net, ...). */
   includeStoreClients?: boolean;
+  heroicPath?: string;
   /** Show a game installed through several launchers as one entry, opened with the preferred launcher. */
   hideDuplicates?: boolean;
   /** Launcher priority, highest first (default: LAUNCHER_PRECEDENCE). */
@@ -56,6 +59,8 @@ export interface LibraryScan {
   installedSteamAppids: Set<number>;
   /** Steam was enabled and fully scanned: safe to prune Steam-keyed caches. */
   steamComplete: boolean;
+  /** Installed Heroic games, when Heroic was enabled and fully scanned (for pruning Heroic artwork). */
+  installedHeroicGames?: HeroicRef[];
 }
 
 export interface MergeResult {
@@ -83,8 +88,9 @@ function mergeArtwork(arts: (GameArtwork | undefined)[]): GameArtwork {
  * One entry for a game installed through several launchers. Launching, id and source come from
  * the preferred copy; other copies become `alternates` ("Launch with …" actions). Last played and
  * playtime take the largest value (summing would double-count launches that go through both
- * launchers), missing artwork is filled in from other copies, and launcher-specific metadata
- * (e.g. Steam's, for store actions and hi-res art) is kept from whichever copy has it.
+ * launchers), and missing artwork is filled in from other copies. Steam's metadata (for store
+ * actions and hi-res art) is kept from whichever copy has it; other launchers' details stay on their
+ * own copy (see launcherDetails).
  */
 export function mergeCopies(preferred: Game, others: Game[]): Game {
   if (others.length === 0) return preferred;
@@ -102,7 +108,6 @@ export function mergeCopies(preferred: Game, others: Game[]): Game {
     keywords: unique(copies.flatMap((c) => c.keywords)),
     storeIds: unique(copies.flatMap((c) => c.storeIds)),
     steam: copies.find((c) => c.steam)?.steam,
-    lutris: copies.find((c) => c.lutris)?.lutris,
     alternates: others,
   };
 }
@@ -147,6 +152,7 @@ export interface LauncherScans {
   enabledLaunchers: GameSource[];
   installedSteamAppids: Set<number>;
   steamComplete: boolean;
+  installedHeroicGames?: HeroicRef[];
 }
 
 /** Scan every enabled launcher on disk (synchronous; the expensive part). */
@@ -155,6 +161,7 @@ export function scanLaunchers(options: Omit<LibraryOptions, "launcherPriority" |
   const launchers: LauncherScan[] = [];
   let installedSteamAppids = new Set<number>();
   let steamComplete = false;
+  let installedHeroicGames: HeroicRef[] | undefined;
   for (const launcher of enabled) {
     if (launcher === "steam") {
       const steam = scanSteam({
@@ -170,9 +177,13 @@ export function scanLaunchers(options: Omit<LibraryOptions, "launcherPriority" |
       launchers.push(
         scanLutris({ lutrisPath: options.lutrisPath, includeStoreClients: options.includeStoreClients, home: options.home }),
       );
+    } else if (launcher === "heroic") {
+      const heroic = scanHeroic({ heroicPath: options.heroicPath, home: options.home });
+      if (heroic.complete) installedHeroicGames = heroic.games.map((g) => ({ runner: g.heroic!.runner, appName: g.heroic!.appName }));
+      launchers.push(heroic);
     }
   }
-  return { launchers, enabledLaunchers: enabled, installedSteamAppids, steamComplete };
+  return { launchers, enabledLaunchers: enabled, installedSteamAppids, steamComplete, installedHeroicGames };
 }
 
 /** Merge launcher results into one sorted list (in memory; cheap enough to redo on every priority change). */
@@ -206,6 +217,7 @@ export function combineLibrary(
     hiddenListsComplete: new Set(launchers.filter((l) => l.hiddenListComplete).map((l) => l.launcher)),
     installedSteamAppids: raw.installedSteamAppids,
     steamComplete: raw.steamComplete,
+    installedHeroicGames: raw.installedHeroicGames,
   };
 }
 
@@ -222,12 +234,13 @@ export interface EmptyStateText {
 const NOT_FOUND_HINT: Record<GameSource, string> = {
   steam: "not found in the usual native, Flatpak and Snap locations",
   lutris: "not found in the usual native and Flatpak locations",
+  heroic: "not found in the usual native and Flatpak locations",
 };
 
 /** What to tell the user when the scan found no games. */
 export function emptyStateText(scan: LibraryScan): EmptyStateText {
   if (scan.enabledLaunchers.length === 0) {
-    return { title: "All launchers are turned off", description: "Turn on Steam or Lutris in Settings (Ctrl+,)." };
+    return { title: "All launchers are turned off", description: "Turn on Steam, Lutris or Heroic in Settings (Ctrl+,)." };
   }
   if (!scan.launchers.some((l) => l.found)) {
     const lines = scan.launchers.map(

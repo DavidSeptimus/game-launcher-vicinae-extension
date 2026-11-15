@@ -39,10 +39,14 @@ export default function SearchGames() {
   const [filter, setFilter] = useState<GameFilter>("visible");
   const priorityPath = join(environment.supportPath, "launcher-priority.json");
   const [priority, setPriority] = useState<GameSource[]>(() => loadPriority(priorityPath));
-  const enabledLaunchers = useMemo(
-    () => LAUNCHER_PRECEDENCE.filter((l) => (l === "steam" ? prefs.enableSteam !== false : prefs.enableLutris !== false)),
-    [prefs.enableSteam, prefs.enableLutris],
-  );
+  const enabledLaunchers = useMemo(() => {
+    const enabled: Record<GameSource, boolean> = {
+      steam: prefs.enableSteam !== false,
+      lutris: prefs.enableLutris !== false,
+      heroic: prefs.enableHeroic !== false,
+    };
+    return LAUNCHER_PRECEDENCE.filter((l) => enabled[l]);
+  }, [prefs.enableSteam, prefs.enableLutris, prefs.enableHeroic]);
 
   // Vicinae unloads the command when its window closes, so every open starts with a fresh scan
   // (and changing a launcher setting re-runs it). There's no manual refresh: nothing to refresh between opens.
@@ -54,11 +58,12 @@ export default function SearchGames() {
       includeNonGames: prefs.includeNonGames,
       lutrisPath: prefs.lutrisPath,
       includeStoreClients: prefs.includeStoreClients,
+      heroicPath: prefs.heroicPath,
       appInfoCachePath: join(environment.supportPath, "appinfo-cache.json"),
     });
     for (const w of result.launchers.flatMap((l) => l.warnings)) console.warn(w);
     setRawScan(result);
-  }, [enabledLaunchers, prefs.steamPath, prefs.includeNonGames, prefs.lutrisPath, prefs.includeStoreClients]);
+  }, [enabledLaunchers, prefs.steamPath, prefs.includeNonGames, prefs.lutrisPath, prefs.includeStoreClients, prefs.heroicPath]);
 
   const scan = useMemo<LibraryScan | undefined>(
     () =>

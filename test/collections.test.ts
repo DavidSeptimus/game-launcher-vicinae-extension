@@ -149,7 +149,8 @@ describe("visibility", () => {
   it("works out an id's launcher, ignoring malformed or unknown ids", () => {
     expect(sourceOfGameId("steam:10")).toBe("steam");
     expect(sourceOfGameId("lutris:42-old-game")).toBe("lutris");
-    expect(sourceOfGameId("heroic:abc")).toBeUndefined();
+    expect(sourceOfGameId("heroic:gog:12")).toBe("heroic");
+    expect(sourceOfGameId("itch:abc")).toBeUndefined();
     expect(sourceOfGameId("no-colon")).toBeUndefined();
     // Unknown-launcher overrides are kept rather than pruned under the wrong launcher.
     const state = { hidden: new Set<string>(), shown: new Set(["no-colon", "heroic:abc", "lutris:9-x"]) };

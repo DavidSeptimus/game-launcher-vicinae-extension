@@ -282,13 +282,13 @@ describe("Steam + Lutris", () => {
 
   it("follows a custom launcher priority", () => {
     const scan = scanLibrary({ home: bothLaunchers(), launcherPriority: ["lutris", "steam"] });
-    expect(scan.priority).toEqual(["lutris", "steam"]);
+    expect(scan.priority).toEqual(["lutris", "steam", "heroic"]); // launchers left out keep their default order
     expect(scan.games.map((g) => g.id).sort()).toEqual(["lutris:1-tyrian-2000", "lutris:2-hades-ii", "lutris:3-wartales"]);
     const wartales = scan.games.find((g) => g.id === "lutris:3-wartales")!;
     expect(wartales.launchUri).toBe("lutris:rungameid/3");
     expect(wartales.alternates?.map((a) => a.id)).toEqual(["steam:1527950"]);
     expect(wartales.steam?.appid).toBe(1527950); // Steam actions and hi-res art still available
-    expect(scan.launchers.map((l) => l.launcher)).toEqual(["lutris", "steam"]);
+    expect(scan.launchers.map((l) => l.launcher)).toEqual(["lutris", "steam", "heroic"]);
   });
 
   it("shows every copy when duplicate hiding is off", () => {
@@ -303,9 +303,9 @@ describe("Steam + Lutris", () => {
     const lutrisFirst = combineLibrary(raw, { launcherPriority: ["lutris", "steam"] });
     expect(steamFirst.games.find((g) => g.title === "Wartales")?.id).toBe("steam:1527950");
     expect(lutrisFirst.games.find((g) => g.title === "Wartales")?.id).toBe("lutris:3-wartales");
-    expect(lutrisFirst.launchers.map((l) => l.launcher)).toEqual(["lutris", "steam"]);
+    expect(lutrisFirst.launchers.map((l) => l.launcher)).toEqual(["lutris", "steam", "heroic"]);
     // The raw scan isn't mutated by combining.
-    expect(raw.launchers.map((l) => l.launcher)).toEqual(["steam", "lutris"]);
+    expect(raw.launchers.map((l) => l.launcher)).toEqual(["steam", "lutris", "heroic"]);
     expect(combineLibrary(raw, { hideDuplicates: false }).games).toHaveLength(5);
   });
 
@@ -442,24 +442,27 @@ describe("mergeCopies", () => {
 
 describe("launcher priority storage", () => {
   it("normalizes unknown, repeated and missing launchers", () => {
-    expect(normalizePriority(["lutris", "heroic", "lutris"])).toEqual(["lutris", "steam"]);
-    expect(normalizePriority("nonsense")).toEqual(["steam", "lutris"]);
+    expect(normalizePriority(["lutris", "itch", "lutris"])).toEqual(["lutris", "steam", "heroic"]);
+    expect(normalizePriority("nonsense")).toEqual(["steam", "lutris", "heroic"]);
+    // A priority saved before Heroic support gets Heroic appended.
+    expect(normalizePriority(["heroic", "lutris"])).toEqual(["heroic", "lutris", "steam"]);
   });
 
   it("saves, loads, and falls back to the default", () => {
     const path = join(makeTempDir(), "nested/launcher-priority.json");
-    expect(loadPriority(path)).toEqual(["steam", "lutris"]);
-    savePriority(path, ["lutris", "steam"]);
-    expect(loadPriority(path)).toEqual(["lutris", "steam"]);
+    expect(loadPriority(path)).toEqual(["steam", "lutris", "heroic"]);
+    savePriority(path, ["lutris", "heroic", "steam"]);
+    expect(loadPriority(path)).toEqual(["lutris", "heroic", "steam"]);
     writeFile(path, "{corrupt");
-    expect(loadPriority(path)).toEqual(["steam", "lutris"]);
+    expect(loadPriority(path)).toEqual(["steam", "lutris", "heroic"]);
   });
 
   it("moves launchers within bounds", () => {
     expect(moveLauncher(["steam", "lutris"], "lutris", -1)).toEqual(["lutris", "steam"]);
     expect(moveLauncher(["steam", "lutris"], "steam", -1)).toEqual(["steam", "lutris"]);
     expect(moveLauncher(["steam", "lutris"], "lutris", 1)).toEqual(["steam", "lutris"]);
-    expect(isDefaultPriority(["steam", "lutris"])).toBe(true);
-    expect(isDefaultPriority(["lutris", "steam"])).toBe(false);
+    expect(isDefaultPriority(["steam", "lutris", "heroic"])).toBe(true);
+    expect(isDefaultPriority(["steam", "lutris"])).toBe(false);
+    expect(isDefaultPriority(["lutris", "steam", "heroic"])).toBe(false);
   });
 });

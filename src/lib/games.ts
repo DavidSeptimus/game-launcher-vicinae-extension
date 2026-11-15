@@ -1,17 +1,17 @@
 /**
- * Launcher-agnostic game model. Each launcher integration (Steam, Lutris, ...)
+ * Launcher-agnostic game model. Each launcher integration (Steam, Lutris, Heroic, ...)
  * produces `Game`s, and the UI only uses this type.
  */
 
-export type GameSource = "steam" | "lutris";
+export type GameSource = "steam" | "lutris" | "heroic";
 
-export const LAUNCHER_NAMES: Record<GameSource, string> = { steam: "Steam", lutris: "Lutris" };
+export const LAUNCHER_NAMES: Record<GameSource, string> = { steam: "Steam", lutris: "Lutris", heroic: "Heroic" };
 
 /**
  * Default launcher priority: when the same game is installed through several
  * launchers, the one listed first opens it. Users can reorder this.
  */
-export const LAUNCHER_PRECEDENCE: readonly GameSource[] = ["steam", "lutris"];
+export const LAUNCHER_PRECEDENCE: readonly GameSource[] = ["steam", "lutris", "heroic"];
 
 export interface GameArtwork {
   /** 2:3 cover art (the Steam library capsule). */
@@ -26,7 +26,7 @@ export interface GameArtwork {
 
 /**
  * The launcher a game id belongs to. Game ids always start with "<GameSource>:" (e.g. "steam:1145350",
- * "lutris:42-tyrian-2000"); this is the one place that relies on that format, for ids that may no
+ * "lutris:42-tyrian-2000", "heroic:gog:1207658901"); this is the one place that relies on that format, for ids that may no
  * longer match a scanned game (e.g. stale hidden-game entries).
  */
 export function sourceOfGameId(id: string): GameSource | undefined {
@@ -86,7 +86,19 @@ export interface Game {
     /** Store the game came from via a Lutris service, e.g. "gog", "egs", "steam". */
     service?: string;
   };
+  heroic?: {
+    appName: string;
+    /** Heroic's store backend: "legendary" (Epic), "gog", "nile" (Amazon), "zoom" or "sideload". */
+    runner: string;
+    /** Platform of the installed build, e.g. "Windows" or "linux". */
+    platform?: string;
+    /** Store artwork URLs from Heroic's library, for downloading sharper copies. */
+    artUrls: GameArtwork;
+  };
 }
+
+/** A Heroic game's store backend and app name: what tells Heroic games apart. */
+export type HeroicRef = Pick<NonNullable<Game["heroic"]>, "runner" | "appName">;
 
 /** What one launcher integration found. */
 export interface LauncherScan {

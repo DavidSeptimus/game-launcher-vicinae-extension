@@ -21,8 +21,8 @@ describe("neededKinds", () => {
   it.each([
     [{ artwork: "cover" }, ["portrait"]],
     [{ artwork: "banner" }, ["header"]],
-    [{ artwork: "hero" }, []],
-    [{ artwork: "logo" }, []],
+    [{ artwork: "hero" }, ["hero"]],
+    [{ artwork: "logo" }, ["logo"]],
     [{ layout: "list" }, ["icon", "header"]],
     [{ layout: "list-detail", artwork: "hero" }, ["icon", "header"]],
   ])("%j -> %j", (prefs, kinds) => {

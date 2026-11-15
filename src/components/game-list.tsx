@@ -3,6 +3,7 @@ import { useState } from "react";
 import { formatBytes, formatLastPlayed, formatPlaytime, markdownUrl } from "../lib/format";
 import { type Game, type GameArtwork, LAUNCHER_NAMES, launchersOf } from "../lib/games";
 import { hiresFor } from "../hooks/use-hires-artwork";
+import { launcherDetails } from "../lib/store-info";
 import { pickArtwork, pickListIcon } from "../lib/view-settings";
 import { GameActions } from "./game-actions";
 import type { GameViewProps } from "./game-grid";
@@ -10,23 +11,6 @@ import type { GameViewProps } from "./game-grid";
 /** Markdown image for a local path or URL, sized for the detail pane. */
 function markdownImage(source: string, alt: string): string {
   return `![${alt.replace(/[[\]]/g, "")}](${markdownUrl(source)}?raycast-width=460)`;
-}
-
-/** Display names for Lutris service ids. */
-const STORE_NAMES: Record<string, string> = {
-  gog: "GOG",
-  egs: "Epic Games Store",
-  steam: "Steam",
-  ubisoft: "Ubisoft Connect",
-  ea_app: "EA app",
-  battlenet: "Battle.net",
-  amazon: "Amazon Games",
-  itchio: "itch.io",
-  humblebundle: "Humble Bundle",
-};
-
-function storeName(service: string): string {
-  return STORE_NAMES[service] ?? service;
 }
 
 function listIcon(game: Game, hires: GameArtwork | undefined): Image.ImageLike {
@@ -37,6 +21,9 @@ function listIcon(game: Game, hires: GameArtwork | undefined): Image.ImageLike {
 function GameDetail(props: { game: Game; hires: GameArtwork | undefined; collections: string[] }) {
   const { game, hires, collections } = props;
   const art = pickArtwork(game, "banner", hires);
+  const details = launcherDetails(game);
+  // A merged entry's details may come from a copy other than the one Enter opens: then say whose they are.
+  const from = details.source && details.source !== game.source ? ` (${LAUNCHER_NAMES[details.source]})` : "";
   const playtime = formatPlaytime(game.playtimeMinutes);
   const size = formatBytes(game.sizeOnDisk);
   return (
@@ -56,9 +43,9 @@ function GameDetail(props: { game: Game; hires: GameArtwork | undefined; collect
               text={game.alternates.map((a) => LAUNCHER_NAMES[a.source]).join(", ")}
             />
           ) : null}
-          {game.lutris?.service && <List.Item.Detail.Metadata.Label title="Store" text={storeName(game.lutris.service)} />}
-          {game.lutris?.runner && <List.Item.Detail.Metadata.Label title="Runner" text={game.lutris.runner} />}
-          {game.lutris?.platform && <List.Item.Detail.Metadata.Label title="Platform" text={game.lutris.platform} />}
+          {details.store && <List.Item.Detail.Metadata.Label title={`Store${from}`} text={details.store} />}
+          {details.runner && <List.Item.Detail.Metadata.Label title={`Runner${from}`} text={details.runner} />}
+          {details.platform && <List.Item.Detail.Metadata.Label title={`Platform${from}`} text={details.platform} />}
           {collections.length > 0 && <List.Item.Detail.Metadata.Label title="Collections" text={collections.join(", ")} />}
           {game.steam && <List.Item.Detail.Metadata.Label title="App ID" text={String(game.steam.appid)} />}
           {game.installDir && <List.Item.Detail.Metadata.Label title="Install Folder" text={game.installDir} />}
