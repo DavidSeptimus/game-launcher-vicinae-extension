@@ -1,121 +1,308 @@
 # Game Launcher for Vicinae
 
 Search and launch your installed Linux games from [Vicinae](https://vicinae.com), in the spirit of Flow Launcher's
-GamesLauncher plugin. Supports **Steam** and **Lutris** (including GOG, Epic, Ubisoft and manually added games managed
-by Lutris); Heroic is planned.
+GamesLauncher plugin. Type a few letters, press Enter, play.
+
+![Search Games showing a cover-art grid of Steam and Lutris games](docs/screenshots/grid-covers.webp)
+
+Supported launchers:
+
+- **Steam**: native, Flatpak or Snap.
+- **Lutris**: native or Flatpak. Covers games Lutris manages from GOG, Epic, Ubisoft and other stores, plus games you
+  added by hand.
+
+Everything is read from the launchers' own files on disk. Nothing is sent anywhere except optional artwork downloads
+(see [Privacy](#privacy-and-files)).
 
 ## Features
 
-- **Search Games** command: a cover-art grid of installed games, most recently played first. The library is rescanned
-  every time the command opens (Vicinae unloads it on close), so there's no manual refresh.
-  Alias it to `gl` in Vicinae for Flow-style muscle memory.
-- Settings (Ctrl+, from any game) come in two groups. **Preferences** (library): which launchers to include,
-  merging duplicates, Steam/Lutris folder overrides, showing Steam tools. **Commands › Search Games** (display):
-  grid or list (optionally with a details pane, Ctrl+D to toggle), grid artwork (cover, banner, hero, logo), games
-  per row (auto or 2–8), grid labels, and downloading high-quality artwork.
-- Matches acronyms and App IDs as well as titles (`kcd` → *Kingdom Come: Deliverance II*).
-- Hides Proton, the Steam Linux Runtime, and other Steam tools (toggle in preferences).
-- Actions: launch, show in Steam library, open install folder, open store page, view on ProtonDB, copy App ID,
-  hide/unhide.
-- Hiding merges with Steam: games in Steam's Hidden collection are hidden here too. Unhiding one here only shows it
-  here (Steam's data is never modified); hiding it again restores Steam's choice.
-- The dropdown has a **Steam** section with Favorites and your manual collections (those with installed games).
-  Dynamic (rule-based) collections aren't supported yet.
-- Works with native, Flatpak (`com.valvesoftware.Steam`) and Snap Steam installs, and every Steam library folder.
-  One install per launcher is used: the first found (native, then Flatpak, then Snap) or the one the folder setting
-  points at. Other installs are noted rather than merged.
-  The Steam Folder setting replaces auto-detection with a single install; if it isn't a Steam folder, the empty
-  state says so.
-- "Clear Artwork Cache…" in every game's action menu purges downloaded art (with confirmation).
-- Sharp artwork on HiDPI screens: Steam's local cache only holds 1x art (300x450 covers, 32px icons), so by default
-  the extension downloads 2x covers/banners from Steam's CDN and extracts the largest image from each game's client
-  `.ico`, caching them under Vicinae's support directory (many games only ship a 32px icon; those keep it). Turn off "Download High-Quality Artwork" to never download. Custom grid art from `userdata/*/config/grid` always
-  wins and is never replaced by downloads.
+- **One searchable list** of installed games from every enabled launcher, most recently played first, as an
+  artwork grid or a list.
+- **Fast matching** on titles, acronyms (the initials of a long title), Steam App IDs and Lutris slugs.
+- **One entry per game across launchers.** A game installed through both Steam and Lutris shows up once. Enter opens
+  it with your preferred launcher, and "Launch with …" actions open it with the others.
+- **Your launchers' organisation, reused**: Steam's Favorites, Hidden and manual collections, and Lutris's favorite,
+  hidden and other categories, appear in the filter dropdown and are respected when hiding.
+- **Sharp artwork on HiDPI screens**: optional high-resolution covers, banners and icons for Steam games, cached on
+  disk. Custom artwork you set in Steam always wins.
+- **Steam tools filtered out**: Proton, the Steam Linux Runtime and redistributables don't clutter the list (you can
+  show them if you want).
+- **No manual refresh needed**: the library is rescanned every time the command opens, which takes milliseconds.
+
+## Screenshots
+
+**Banner grid**: wide store artwork, several games per row.
+
+![Banner grid layout](docs/screenshots/grid-banners.webp)
+
+**List**: launcher tags, playtime and last played for each game.
+
+![List layout](docs/screenshots/list.webp)
+
+## Requirements
+
+- [Vicinae](https://vicinae.com) 0.30 or newer.
+- Node.js 22.16 or newer, the runtime Vicinae runs extensions with. Lutris support relies on Node's built-in
+  `node:sqlite`; with Lutris turned off, Node 22.2 or newer is enough.
+- To build from source: [pnpm](https://pnpm.io).
+
+## Installation
+
+The extension isn't in the Vicinae store yet. To install it from source:
+
+```bash
+git clone https://github.com/DavidSeptimus/game-launcher-vicinae-extension.git
+cd game-launcher-vicinae-extension
+pnpm install
+pnpm build    # builds and installs into ~/.local/share/vicinae/extensions/game-launcher
+```
+
+Then open Vicinae and search for **Search Games**. You can give the command an alias such as `gl` (Flow Launcher's
+keyword) or a hotkey in Vicinae's settings, under Extensions › Game Launcher.
+
+## Usage
+
+Open **Search Games**, type to filter, and press **Enter** to launch the selected game. If the launcher isn't
+running yet (e.g. Steam), it starts first and then launches the game.
+
+### Actions and shortcuts
+
+| Action | Shortcut | Notes |
+| --- | --- | --- |
+| Launch Game | Enter | "Launch with Steam" when the game is installed in several launchers. |
+| Launch with *other launcher* | Ctrl+Enter | First alternate launcher; any further ones are in the action panel. |
+| Show in Steam Library | Ctrl+L | Steam games. |
+| Open Install Folder | Ctrl+O | |
+| Open Store Page | Ctrl+S | Steam games, opens in the Steam client. |
+| View on ProtonDB | Ctrl+P | Steam games, opens in your browser. |
+| Copy App ID | Ctrl+Shift+C | Steam games. |
+| Show / Hide Details | Ctrl+D | List layout only. |
+| Hide Game / Unhide Game | Ctrl+H | See [Hiding games](#hiding-games). |
+| Settings | Ctrl+, | |
+| Launcher Priority… | | When more than one launcher is enabled. |
+| Clear Artwork Cache… | | Asks for confirmation first. |
+
+The action panel itself opens with Vicinae's usual shortcut (Ctrl+B).
+
+### Filtering
+
+The dropdown next to the search bar switches between:
+
+- **Installed Games**: everything that isn't hidden.
+- **Steam Games / Lutris Games**: shown when games come from more than one launcher. A game installed in both counts
+  for both.
+- **Hidden Games**: games hidden here or in their launcher.
+- **Collections**, grouped by launcher: Steam's Favorites and manual collections, and Lutris's favorite and custom
+  categories. Only collections with at least one visible installed game are listed.
+
+### Hiding games
+
+A game is hidden if you hid it here **or** it's hidden in its own launcher (Steam's Hidden collection, Lutris's
+hidden category). The extension never writes to a launcher's data, so:
+
+- Unhiding a game the launcher hides shows it here only; the launcher keeps hiding it. The toast says so.
+- Hiding it again here restores the launcher's choice.
+- Hiding a game installed in several launchers hides every copy, so it stays hidden whichever launcher is preferred,
+  and even if you later turn off Merge Duplicates.
+
+Hidden games are listed under **Hidden Games** in the dropdown.
+
+## Settings
+
+Open them with **Ctrl+,** from any game, or from Vicinae's settings under Extensions › Game Launcher. They come in
+two groups.
+
+**Preferences** (which games are found):
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Steam | On | Show games installed through Steam. |
+| Lutris | On | Show games installed through Lutris. |
+| Merge Duplicates | On | Show a game installed in several launchers as one entry (see [Multiple launchers](#multiple-launchers)). |
+| Steam Folder | Auto | Use only the Steam install in this folder instead of auto-detecting. |
+| Show Steam Tools | Off | Also list Proton, the Steam Linux Runtime and other non-game Steam apps. |
+| Lutris Folder | Auto | Use only the Lutris data folder at this path (the one containing `pga.db`). |
+
+**Commands › Search Games** (how games are shown):
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Layout | Grid | Grid, List, or List with Details. |
+| Grid Artwork | Cover | Cover (portrait), Banner (store header), Hero (wide background) or Logo. |
+| Games per Row | Auto | 2–8, or Auto, which suits the artwork: 5 covers, 3 banners, 2 heroes, 4 logos. |
+| Grid Labels | Title and Last Played | Title and Last Played, Title Only, or None. |
+| Download High-Quality Artwork | On | Download higher-resolution artwork where available (see [Artwork](#artwork)). |
+
+If a folder setting doesn't point at a valid install, the extension says so: in the empty state when nothing was
+found, or in a toast when other launchers still have games.
 
 ## Multiple launchers
 
-- Each launcher can be turned on or off in Settings (Ctrl+,). A disabled launcher isn't scanned, and its cached data
-  and hidden-game choices are kept.
-- **One entry per game**: a game installed through several launchers (e.g. a Steam game Lutris also manages) is
-  matched by store id and shown once. Enter opens it with your preferred launcher; "Launch with …" actions (Ctrl+Enter
-  for the first) open it with the others. Last played and playtime take the latest/largest across copies, missing
-  artwork is filled in from other copies, and Steam actions stay available even when another launcher is preferred.
-  Hiding an entry hides every copy. This can be turned off to list each copy separately.
-- **Launcher Priority…** (in the action panel) reorders launchers with Move Up / Move Down (Ctrl+Shift+↑/↓); the
-  default is Steam, then Lutris. Stored in `<support>/launcher-priority.json`.
-- With games from more than one launcher, each game is labelled with its launcher, and the dropdown gains per-launcher
-  filters plus a collections section per launcher.
+- **Turning launchers on and off**: a launcher turned off in Settings isn't scanned at all. Its cached data and your
+  hidden-game choices are kept for when you turn it back on.
+- **Matching duplicates**: games are matched across launchers by store identity, e.g. a Steam game that Lutris
+  manages through its Steam integration, or a Steam-runner game added to Lutris by hand (its Steam App ID is read
+  from the Lutris game config). Copies within the *same* launcher are never merged.
+- **Merged entries**: Enter uses your preferred launcher; the others become "Launch with …" actions. Last played and
+  playtime take the most recent and largest value across copies (not the sum, which would double-count). Missing
+  artwork is filled in from other copies, and Steam actions stay available even when Lutris is preferred. Turn off
+  **Merge Duplicates** to list every copy separately.
+- **Launcher Priority…** (in the action panel or the empty state) sets which launcher is preferred. Use Move Up /
+  Move Down (Ctrl+Shift+↑ / ↓) or Reset to Default Order. The default is Steam, then Lutris. Changes apply
+  immediately.
+- **One install per launcher**: if you have, say, both native and Flatpak Lutris, only the first one found is used
+  (native, then Flatpak, then Snap for Steam), or the one the folder setting points at. The others are mentioned in
+  the empty state and logs. Every library folder of the chosen Steam install is scanned, including ones on other
+  drives.
 
-## How it reads Lutris
+## Artwork
 
-| Data | Source |
+- **Steam**: the extension uses Steam's local cache (`appcache/librarycache`). That cache only holds low-resolution
+  art: 300×450 covers, 460×215 banners and 32px icons. With **Download High-Quality Artwork** on, it also downloads
+  2× covers and banners from Steam's CDN, plus the largest image inside each game's client `.ico`, and caches them.
+  Many games only publish a 32px icon; those keep it.
+- **Custom artwork** you've set in Steam (e.g. from SteamGridDB, stored in `userdata/*/config/grid`) always wins and
+  is never replaced by downloads.
+- **Lutris**: covers, banners and icons come from Lutris's own folders. Lutris stores small images (264×352 covers,
+  184×69 banners) and there is no higher-resolution source, so they can look soft next to Steam's.
+- **Only what's on screen is downloaded**: covers for the cover grid, banners for the banner grid, icons and banners
+  for the list layouts. Hero and logo art is already full size locally.
+- **Cache upkeep**: cached files are refreshed after 30 days. Art Steam doesn't have is retried after 7 days, and
+  network errors on the next open. Art for uninstalled games is removed automatically, but not while a library folder
+  is unreachable (e.g. an unplugged drive).
+- **Clear Artwork Cache…** deletes everything downloaded. Launchers' own art and your custom art are not touched.
+
+## Privacy and files
+
+**Network access**: the only automatic network traffic is artwork downloads from `cdn.cloudflare.steamstatic.com`.
+Each request contains only a Steam App ID and an image name. Turn off **Download High-Quality Artwork** to disable
+it. "View on ProtonDB" opens your browser only when you choose it. No analytics, no accounts, no API keys.
+
+**Files read**: the launchers' own data, read-only:
+
+- Steam: manifests, `appinfo.vdf`, `localconfig.vdf`, and the local copy of its collections.
+- Lutris: `pga.db`, opened read-only, plus its game configs and artwork folders.
+
+**Files written**: under `~/.local/share/vicinae/support/game-launcher/`:
+
+| Path | Contents |
 | --- | --- |
-| Games, play time, last played | `pga.db` (SQLite, read-only via Node's built-in `node:sqlite`) — native `~/.local/share/lutris` or Flatpak `~/.var/app/net.lutris.Lutris/data/lutris` |
-| Favorites, hidden, collections | Lutris categories: `favorite`, `.hidden`, and any other category |
-| Artwork | `coverart/<slug>.jpg`, `banners/<slug>.jpg`, `icons/hicolor/128x128/apps/lutris_<slug>.png` |
-| Duplicate matching | `service` + `service_id` (e.g. `steam:1145350`, `gog:1207658901`); for Steam-runner games added by hand, `game.appid` from the game's YAML config (`~/.config/lutris/games` or `<data>/games`) |
-| Launch | `lutris:rungameid/<id>` |
+| `artwork/` | Downloaded high-resolution artwork. |
+| `appinfo-cache.json` | Each installed Steam app's type and icon IDs, so the large `appinfo.vdf` is only read for new games or re-checked monthly. |
+| `launcher-priority.json` | Your launcher order. |
 
-## How it reads Steam
+Your hidden games and "shown here" choices are kept in Vicinae's local storage for the extension. Settings live in
+Vicinae's `~/.config/vicinae/settings.json`.
 
-Everything is read locally from the Steam directory. The only network traffic is artwork downloads from
-`cdn.cloudflare.steamstatic.com` (App ID + asset name only), which the "Download High-Quality Artwork" setting can turn off.
+## Limitations
+
+- Steam's **dynamic (rule-based) collections** aren't shown; Favorites and manual collections are.
+- Hidden status and collections are **read-only**: hiding a game here doesn't hide it in Steam or Lutris.
+- **One install per launcher**, as described above.
+- Duplicate matching relies on **store identity**. Two unrelated entries for the same game with no store link (e.g. a
+  manually added Lutris game pointing at a GOG installer) aren't merged.
+- **Lutris artwork is low resolution**, as described above.
+- Heroic (Epic, GOG, Amazon) isn't supported yet.
+
+## How it works
+
+### Steam
 
 | Data | Source |
 | --- | --- |
 | Library folders | `steamapps/libraryfolders.vdf` |
-| Installed apps | `<library>/steamapps/appmanifest_*.acf` (`StateFlags` bit 4 = fully installed) |
-| Game vs. tool | `appcache/appinfo.vdf` (binary, v27–v29), `common.type`; name-based fallback if unreadable. Type and icon hashes are remembered in `<support>/appinfo-cache.json`, so appinfo.vdf (which can be 100+ MB) is only read for newly installed games, or to re-check entries older than 30 days |
-| Last played / playtime | `userdata/*/config/localconfig.vdf`, merged across accounts |
-| Collections, Steam-hidden | `userdata/*/config/cloudstorage/cloud-storage-namespace-1.json` (`user-collections.*`), merged across accounts |
-| Artwork | `appcache/librarycache/<appid>/…` (flat, per-app and hashed layouts), `userdata/*/config/grid` |
-| Hi-res art | CDN `library_600x900_2x.jpg`, `library_header_2x.jpg`, client `.ico` → `<support>/artwork/steam/<appid>/` |
+| Installed games | `<library>/steamapps/appmanifest_*.acf`. A game is listed once fully installed, but games mid-update keep their cached data. |
+| Game vs. tool | `appcache/appinfo.vdf` (binary, formats v27–v29), field `common.type`, remembered in `appinfo-cache.json`. Falls back to known IDs and names if the file is unreadable. |
+| Last played, playtime | Each game's manifest and `userdata/*/config/localconfig.vdf`, merged across accounts |
+| Favorites, Hidden, collections | `userdata/*/config/cloudstorage/cloud-storage-namespace-1.json` (`user-collections.*`) |
+| Artwork | `appcache/librarycache/<appid>/…` (flat, per-app and hashed layouts), `userdata/*/config/grid`, CDN `library_600x900_2x.jpg` / `library_header_2x.jpg` / client `.ico` |
+| Launch | `steam://rungameid/<appid>` |
 
-### Artwork resolution order
+### Lutris
 
-For each image: **custom grid art → downloaded 2x → Steam's local 1x → downloaded 1x** (the 1x CDN image is only
-fetched when Steam has no local copy, since it would be identical). Only art the current layout shows is fetched.
-Cached files refresh after 30 days, 404s are retried after 7, network errors on the next open. Art for uninstalled
-games is pruned after each complete scan (skipped if any library folder is unreachable, e.g. an unmounted drive).
-| Launch | `steam://rungameid/<appid>` via `xdg-open` |
+| Data | Source |
+| --- | --- |
+| Games, last played, playtime | `pga.db` (SQLite, read-only), installed games only |
+| Favorites, hidden, collections | Categories: `favorite`, `.hidden`, and any other non-hidden category |
+| Duplicate matching | `service` + `service_id` (e.g. `gog:1207658901`), or `game.appid` from the game's YAML config for Steam-runner games |
+| Artwork | `coverart/<slug>.jpg`, `banners/<slug>.jpg`, `~/.local/share/icons/hicolor/128x128/apps/lutris_<slug>.png` |
+| Launch | `lutris:rungameid/<id>` |
 
 ## Development
 
-Toolchain: the system Node 22 (the same runtime Vicinae runs extensions on) and pnpm.
+Toolchain: Node 22 (ideally the same one Vicinae uses) and pnpm. There are no native dependencies; the VDF parsers,
+the `.ico` extractor and the PNG encoder are all plain TypeScript.
 
 ```bash
 pnpm install
 pnpm dev          # live-reloading dev session inside the running Vicinae
-pnpm test         # unit tests (synthetic Steam fixtures)
-LOCAL_STEAM=1 pnpm test local-steam   # smoke test against this machine's Steam install
-BENCH=1 pnpm exec vitest run scan-bench --silent=false   # scan timing on synthetic 500/2000-game libraries
+pnpm test         # unit tests (synthetic Steam/Lutris fixtures, no real installs needed)
 pnpm typecheck
-pnpm lint         # validates the manifest
-pnpm build        # installs the built extension into ~/.local/share/vicinae/extensions
+pnpm lint         # validates the extension manifest
+pnpm build        # builds and installs into ~/.local/share/vicinae/extensions
+
+LOCAL_STEAM=1 pnpm test local-steam                     # smoke test against this machine's Steam install
+BENCH=1 pnpm exec vitest run scan-bench --silent=false  # scan timing on synthetic 500/2000-game libraries
 ```
 
-Layout:
+When editing several files at once, stop `pnpm dev` first: it rebuilds on every save, and a half-finished change
+can load into Vicinae.
+
+### Project layout
 
 ```
-src/search-games.tsx      the command: loads the library, picks grid or list
-src/components/           GameGrid, GameList, shared action panel
-src/lib/view-settings.ts  display preferences -> grid columns / aspect ratio / artwork choice
-src/lib/artwork-cache.ts  hi-res artwork download cache (download, refresh, prune, clear)
-src/lib/artwork-requests.ts  which art the current layout needs, per game
-src/lib/image/            .ico extraction and a minimal PNG encoder (no native deps)
-src/hooks/                useHiresArtwork: fills the cache in the background, re-renders as art arrives
-src/lib/library.ts        runs enabled launchers, merges copies of the same game by priority, one sorted list
-src/lib/launcher-priority.ts  user launcher order (normalize, load/save, move)
-src/components/launcher-priority.tsx  the reorderable Launcher Priority view
-src/lib/steam/scan.ts     Steam launcher integration (one install; others noted)
-src/lib/lutris/           Lutris launcher integration (paths, read-only SQLite, scan)
-src/lib/game-views.ts     dropdown views: installed / hidden / collections
-src/lib/visibility.ts     merged hidden rules (ours + Steam's, with "shown here" overrides)
-src/lib/games.ts          launcher-agnostic Game model, sorting, acronym keywords
-src/lib/steam/            Steam paths, manifest/library scan, appinfo.vdf, artwork
-src/lib/vdf/              text and binary KeyValues parsers
-assets-src/               icon source (SVG); rendered PNG lives in assets/
+src/search-games.tsx            the command: scanning, merging, filters, hidden state, dropdown
+src/components/                 game grid and list, action panels, Launcher Priority view
+src/hooks/use-hires-artwork.ts  fills the artwork cache in the background; re-renders as art arrives
+src/lib/games.ts                launcher-independent Game model, launcher names and default order
+src/lib/library.ts              scanLaunchers (disk) + combineLibrary (merge by priority, in memory), empty states
+src/lib/steam/                  Steam integration: install detection, manifests, appinfo.vdf, collections, artwork
+src/lib/lutris/                 Lutris integration: install detection, read-only SQLite, categories, artwork
+src/lib/vdf/                    text and binary KeyValues (VDF) parsers
+src/lib/image/                  .ico extraction and a minimal PNG encoder
+src/lib/artwork-cache.ts        high-resolution artwork cache: download, refresh, prune, clear
+src/lib/artwork-requests.ts     which artwork the current layout needs
+src/lib/visibility.ts           hiding rules: ours and the launcher's, with "shown here" overrides
+src/lib/game-views.ts           dropdown views: installed, per launcher, hidden, collections
+src/lib/launcher-priority.ts    launcher order: normalize, load, save, move
+test/                           vitest suites and fixtures (fake Steam/Lutris installs, appinfo/.ico writers)
+assets/, assets-src/            extension icon (PNG), its SVG source, and alternate colour schemes
+docs/screenshots/               README screenshots (WebP)
 ```
 
-The extension icon is rendered from `assets-src/extension_icon.svg` with
-`magick -background none -density 192 assets-src/extension_icon.svg -resize 512x512 assets/extension_icon.png`.
+### Adding a launcher
+
+Each launcher is a module that returns a `LauncherScan` (see `src/lib/games.ts`): its games, collections, hidden
+list, where it looked, and any warnings or settings problems. To add one:
+
+1. Add it to `GameSource`, `LAUNCHER_NAMES` and `LAUNCHER_PRECEDENCE` in `games.ts`.
+2. Write `src/lib/<launcher>/scan.ts`. Detect a single install (folder setting first), give games ids of the form
+   `<launcher>:<stable id>`, set a `launchUri`, and fill in `storeIds` (e.g. `gog:<id>`) so duplicates merge.
+3. Call it from `scanLaunchers` in `library.ts`, and add a not-found hint for the empty state.
+4. Add an on/off checkbox and a folder setting to `package.json`, and read them in `search-games.tsx`.
+
+The extension icon (deep sea) is rendered from `assets-src/extension_icon.svg` with:
+
+```bash
+magick -background none -density 192 assets-src/extension_icon.svg -resize 512x512 -depth 8 assets/extension_icon.png
+```
+
+Alternate colour schemes (charcoal and amber, midnight teal, plum) are kept in `assets-src/alternates/`. To switch, copy one
+over `assets-src/extension_icon.svg` and re-render. Only `assets/` ships with the extension.
+
+## AI disclosure
+
+This extension was developed with AI assistance. Most of the code, tests and documentation were written by
+Anthropic's Claude, using Claude Code, under the maintainer's direction. The maintainer made the design decisions,
+reviewed the changes, and tested the extension on their own Linux system with Steam and Lutris. The code was also
+checked by AI code reviews, and issues found were fixed with regression tests. Please report anything that looks
+wrong.
+
+## Acknowledgements
+
+Inspired by [GamesLauncher](https://github.com/KrystianLesniak/Flow.Launcher.Plugin.GamesLauncher) for Flow
+Launcher. Not affiliated with Valve, Lutris or Vicinae.
+
+## License
+
+[MIT](LICENSE)
