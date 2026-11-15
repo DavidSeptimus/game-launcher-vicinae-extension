@@ -79,6 +79,42 @@ describe("scanLutris", () => {
     expect(result.games[1]).toMatchObject({ lastPlayed: 0, playtimeMinutes: undefined, storeIds: [], artwork: {} });
   });
 
+  it("leaves out store clients Lutris installs for its services", () => {
+    const home = makeTempDir();
+    makeLutrisDb(nativeLutris(home).dataDir, [
+      { id: 1, name: "Epic Games Store", slug: "epic-games-store", installer_slug: "epic-games-store-standard", runner: "wine" },
+      { id: 2, name: "EA app", slug: "ea-app", runner: "wine" },
+      { id: 3, name: "Ubisoft Connect", slug: "ubisoft-connect", runner: "wine" },
+      { id: 4, name: "Battle.net", slug: "battlenet", runner: "wine" },
+      { id: 5, name: "Steam", slug: "steam", installer_slug: "steam-wine", runner: "wine" },
+      // Steam under Wine from another installer, under a custom name: found by installer slug alone.
+      { id: 6, name: "Windows Steam", slug: "steam-windows", installer_slug: "steam-wine", runner: "wine" },
+      { id: 7, name: "Origin", slug: "origin", runner: "wine" },
+      { id: 8, name: "Fortnite", slug: "fortnite", runner: "wine", service: "egs", service_id: "Fortnite" },
+    ]);
+    const result = scanLutris({ home });
+    expect(result.games.map((g) => g.title)).toEqual(["Fortnite"]);
+    expect(scanLutris({ home, includeStoreClients: true }).games).toHaveLength(8);
+  });
+
+  it("matches the Steam client by slug whichever installer added it", () => {
+    const home = makeTempDir();
+    makeLutrisDb(nativeLutris(home).dataDir, [
+      { id: 1, name: "Steam", slug: "steam", installer_slug: "steam-windows", runner: "wine" },
+      { id: 2, name: "Steam", slug: "steam", runner: "linux" },
+    ]);
+    expect(scanLutris({ home }).games).toEqual([]);
+  });
+
+  it("passes the store clients setting through the library scan", () => {
+    const home = makeTempDir();
+    makeLutrisDb(nativeLutris(home).dataDir, [{ id: 1, name: "Battle.net", slug: "battlenet", runner: "wine" }]);
+    const lutrisGames = (includeStoreClients?: boolean) =>
+      scanLaunchers({ home, enabledLaunchers: ["lutris"], includeStoreClients }).launchers[0]?.games.map((g) => g.title);
+    expect(lutrisGames()).toEqual([]);
+    expect(lutrisGames(true)).toEqual(["Battle.net"]);
+  });
+
   it("maps categories to favorites, hidden and user collections", () => {
     const home = makeTempDir();
     makeLutrisDb(nativeLutris(home).dataDir, [

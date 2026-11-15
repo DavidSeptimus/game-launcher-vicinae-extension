@@ -18,6 +18,8 @@ export interface LibraryOptions {
   steamPath?: string;
   includeNonGames?: boolean;
   lutrisPath?: string;
+  /** Also list launcher store clients (Lutris's Epic Games Store, Battle.net, ...). */
+  includeStoreClients?: boolean;
   /** Show a game installed through several launchers as one entry, opened with the preferred launcher. */
   hideDuplicates?: boolean;
   /** Launcher priority, highest first (default: LAUNCHER_PRECEDENCE). */
@@ -165,7 +167,9 @@ export function scanLaunchers(options: Omit<LibraryOptions, "launcherPriority" |
       steamComplete = steam.complete;
       launchers.push(steam);
     } else if (launcher === "lutris") {
-      launchers.push(scanLutris({ lutrisPath: options.lutrisPath, home: options.home }));
+      launchers.push(
+        scanLutris({ lutrisPath: options.lutrisPath, includeStoreClients: options.includeStoreClients, home: options.home }),
+      );
     }
   }
   return { launchers, enabledLaunchers: enabled, installedSteamAppids, steamComplete };

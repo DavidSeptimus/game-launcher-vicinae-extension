@@ -9,7 +9,7 @@ type ExtensionPreferences = {
   /** Steam - Show games installed through Steam. */
 	"enableSteam"?: boolean;
 
-	/** Lutris - Show games installed through Lutris, including GOG, Epic and manually added games. */
+	/** Lutris - Show games installed through Lutris. */
 	"enableLutris"?: boolean;
 
 	/** Merge Duplicates - Show a game installed in several launchers as one entry. Choose which launcher opens it with the Launcher Priority action. */
@@ -23,6 +23,9 @@ type ExtensionPreferences = {
 
 	/** Lutris Folder - Only use the Lutris data folder at this path (the one containing pga.db). Leave empty to find it automatically. */
 	"lutrisPath"?: string;
+
+	/** Show Lutris Store Clients - Also list the store apps Lutris installs to run games, such as the Epic Games Store and Battle.net. */
+	"includeStoreClients"?: boolean;
 }
 
 declare type Preferences = ExtensionPreferences

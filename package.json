@@ -173,7 +173,7 @@
       "name": "enableLutris",
       "title": "Lutris",
       "label": "Lutris",
-      "description": "Show games installed through Lutris, including GOG, Epic and manually added games.",
+      "description": "Show games installed through Lutris.",
       "type": "checkbox",
       "default": true,
       "required": false
@@ -208,6 +208,15 @@
       "title": "Lutris Folder",
       "description": "Only use the Lutris data folder at this path (the one containing pga.db). Leave empty to find it automatically.",
       "type": "directory",
+      "required": false
+    },
+    {
+      "name": "includeStoreClients",
+      "title": "Show Lutris Store Clients",
+      "label": "Show Lutris Store Clients",
+      "description": "Also list the store apps Lutris installs to run games, such as the Epic Games Store and Battle.net.",
+      "type": "checkbox",
+      "default": false,
       "required": false
     }
   ],

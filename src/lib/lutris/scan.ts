@@ -16,6 +16,8 @@ import { openReadOnly } from "./sqlite";
 export interface LutrisScanOptions {
   /** Lutris Folder preference (the folder containing pga.db): when set, only it is used. */
   lutrisPath?: string;
+  /** Also list store clients (Epic Games Store, Battle.net, ...); see isStoreClient. */
+  includeStoreClients?: boolean;
   /** Home directory to auto-detect installs in (tests). */
   home?: string;
 }
@@ -28,6 +30,7 @@ interface GameRow {
   id: number;
   configpath: string | null;
   slug: string | null;
+  installer_slug: string | null;
   name: string | null;
   runner: string | null;
   platform: string | null;
@@ -56,6 +59,23 @@ export function lutrisGameId(rowId: number, slug: string | null): string {
 /** Lutris service ids, lower-cased and trimmed ("GOG " -> "gog"). */
 export function normalizeService(service: string | null | undefined): string | undefined {
   return service?.trim().toLowerCase() || undefined;
+}
+
+/**
+ * Store clients Lutris installs so a service's games can run. They're launchers, not games. Matched
+ * the way Lutris finds them (each service's `client_installer`): by slug for the Epic Games Store,
+ * EA app, Ubisoft Connect, Battle.net and Origin (the EA app's predecessor, still in older
+ * libraries), and by installer slug for Steam under Wine. Any "steam" slug is the Steam client
+ * too, whichever installer added it.
+ */
+const CLIENT_SLUGS = new Set(["epic-games-store", "ea-app", "origin", "ubisoft-connect", "battlenet", "steam"]);
+const CLIENT_INSTALLER_SLUGS = new Set(["steam-wine"]);
+
+export function isStoreClient(row: Pick<GameRow, "slug" | "installer_slug">): boolean {
+  return (
+    (row.slug !== null && CLIENT_SLUGS.has(row.slug)) ||
+    (row.installer_slug !== null && CLIENT_INSTALLER_SLUGS.has(row.installer_slug))
+  );
 }
 
 function firstExisting(paths: string[]): string | undefined {
@@ -142,12 +162,12 @@ function toGame(install: LutrisInstall, row: GameRow): Game | undefined {
   };
 }
 
-function scanInstall(install: LutrisInstall) {
+function scanInstall(install: LutrisInstall, includeStoreClients: boolean) {
   const db = openReadOnly(join(install.dataDir, "pga.db"));
   try {
     const rows = db
       .prepare(
-        "SELECT id, slug, name, runner, platform, directory, lastplayed, playtime, service, service_id, configpath FROM games WHERE installed = 1",
+        "SELECT id, slug, installer_slug, name, runner, platform, directory, lastplayed, playtime, service, service_id, configpath FROM games WHERE installed = 1",
       )
       .all() as unknown as GameRow[];
     let categories: CategoryRow[] = [];
@@ -166,7 +186,10 @@ function scanInstall(install: LutrisInstall) {
       if (!/no such table/i.test(message)) categoriesError = message;
     }
     return {
-      games: rows.map((r) => toGame(install, r)).filter((g): g is Game => Boolean(g)),
+      games: rows
+        .filter((r) => includeStoreClients || !isStoreClient(r))
+        .map((r) => toGame(install, r))
+        .filter((g): g is Game => Boolean(g)),
       categories,
       categoriesError,
     };
@@ -211,7 +234,7 @@ export function scanLutris(options: LutrisScanOptions = {}): LutrisLauncherScan 
     result.sources.push(`Lutris (${install.kind}): ${install.dataDir}`);
     let scanned: ReturnType<typeof scanInstall>;
     try {
-      scanned = scanInstall(install);
+      scanned = scanInstall(install, options.includeStoreClients ?? false);
     } catch (err) {
       result.complete = false;
       result.hiddenListComplete = false;

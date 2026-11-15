@@ -25,8 +25,9 @@ Everything is read from the launchers' own files on disk. Nothing is sent anywhe
   hidden and other categories, appear in the filter dropdown and are respected when hiding.
 - **Sharp artwork on HiDPI screens**: optional high-resolution covers, banners and icons for Steam games, cached on
   disk. Custom artwork you set in Steam always wins.
-- **Steam tools filtered out**: Proton, the Steam Linux Runtime and redistributables don't clutter the list (you can
-  show them if you want).
+- **Tools and store clients filtered out**: Proton, the Steam Linux Runtime and redistributables don't clutter the
+  list, nor do the store clients Lutris installs to run your games (Epic Games Store, EA app, Ubisoft Connect,
+  Battle.net, Origin, Steam). Both can be shown in Settings.
 - **No manual refresh needed**: the library is rescanned every time the command opens, which takes milliseconds.
 
 ## Screenshots
@@ -122,6 +123,7 @@ two groups.
 | Steam Folder | Auto | Use only the Steam install in this folder instead of auto-detecting. |
 | Show Steam Tools | Off | Also list Proton, the Steam Linux Runtime and other non-game Steam apps. |
 | Lutris Folder | Auto | Use only the Lutris data folder at this path (the one containing `pga.db`). |
+| Show Lutris Store Clients | Off | Also list the store apps Lutris installs to run games, such as the Epic Games Store and Battle.net. |
 
 **Commands › Search Games** (how games are shown):
 

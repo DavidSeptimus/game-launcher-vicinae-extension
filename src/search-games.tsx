@@ -53,11 +53,12 @@ export default function SearchGames() {
       steamPath: prefs.steamPath,
       includeNonGames: prefs.includeNonGames,
       lutrisPath: prefs.lutrisPath,
+      includeStoreClients: prefs.includeStoreClients,
       appInfoCachePath: join(environment.supportPath, "appinfo-cache.json"),
     });
     for (const w of result.launchers.flatMap((l) => l.warnings)) console.warn(w);
     setRawScan(result);
-  }, [enabledLaunchers, prefs.steamPath, prefs.includeNonGames, prefs.lutrisPath]);
+  }, [enabledLaunchers, prefs.steamPath, prefs.includeNonGames, prefs.lutrisPath, prefs.includeStoreClients]);
 
   const scan = useMemo<LibraryScan | undefined>(
     () =>

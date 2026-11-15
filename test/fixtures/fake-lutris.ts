@@ -8,6 +8,7 @@ export interface FakeLutrisGame {
   id: number;
   name: string;
   slug: string;
+  installer_slug?: string;
   installed?: 0 | 1;
   runner?: string;
   platform?: string;
@@ -37,8 +38,8 @@ export function makeLutrisDb(dataDir: string, games: FakeLutrisGame[], options: 
     db.exec("CREATE TABLE games_categories (game_id INTEGER, category_id INTEGER)");
   }
   const insert = db.prepare(
-    `INSERT INTO games (id, name, slug, installed, runner, platform, directory, lastplayed, playtime, service, service_id, configpath)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO games (id, name, slug, installer_slug, installed, runner, platform, directory, lastplayed, playtime, service, service_id, configpath)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const categoryIds = new Map<string, number>();
   for (const g of games) {
@@ -46,6 +47,7 @@ export function makeLutrisDb(dataDir: string, games: FakeLutrisGame[], options: 
       g.id,
       g.name,
       g.slug,
+      g.installer_slug ?? null,
       g.installed ?? 1,
       g.runner ?? null,
       g.platform ?? null,
