@@ -174,6 +174,34 @@ describe("scanHeroic", () => {
     expect(result.hiddenInLauncher.has("heroic:gog:7")).toBe(true);
   });
 
+  it("counts an unreadable library cache as an incomplete scan when that store has installed games", () => {
+    const home = makeTempDir();
+    const root = makeHeroicConfig(flatpakHeroic(home), { thirdParty: [["ubi-game", "Windows"]] });
+    writeFile(join(root, "store_cache/legendary_library.json"), "{half-writ");
+    writeFile(join(root, "store_cache/zoom_library.json"), "{stale"); // no ZOOM games: doesn't matter
+    const result = scanHeroic({ home });
+    expect(result.games).toEqual([]); // the third-party game has no title without the library
+    expect(result.complete).toBe(false); // so its cached art isn't pruned
+    expect(scanLaunchers({ home }).installedHeroicGames).toBeUndefined();
+
+    writeFile(join(root, "store_cache/legendary_library.json"), JSON.stringify({ library: [{ app_name: "ubi-game", title: "Ubi" }] }));
+    expect(scanHeroic({ home })).toMatchObject({ complete: true, games: [{ title: "Ubi" }] });
+  });
+
+  it("reads file:// art with a literal '%' in its name instead of failing the scan", () => {
+    const home = makeTempDir();
+    const cover = writeFile(join(home, "Pictures/100%.png"));
+    makeHeroicConfig(flatpakHeroic(home), {
+      sideloaded: [
+        { app_name: "s", title: "Sideloaded", is_installed: true, art_square: `file://${cover}` },
+        { app_name: "t", title: "Missing Art", is_installed: true, art_square: "file:///nowhere/50%.png" },
+      ],
+    });
+    const byTitle = new Map(scanHeroic({ home }).games.map((g) => [g.title, g.artwork]));
+    expect(byTitle.get("Sideloaded")).toEqual({ portrait: cover });
+    expect(byTitle.get("Missing Art")).toEqual({});
+  });
+
   it("reads the sideloaded apps file once, so a broken one is reported once", () => {
     const home = makeTempDir();
     const root = makeHeroicConfig(flatpakHeroic(home));
@@ -248,6 +276,14 @@ describe("Heroic with other launchers", () => {
     expect(launcherDetails(mergeCopies({ ...lutrisCopy, lutris: { id: 1, slug: "twelve" } }, [heroicCopy]))).toMatchObject({
       source: "heroic",
     });
+  });
+
+  it("shows no Lutris details for a game Steam launches", () => {
+    const steam = { id: "steam:7", source: "steam" as const, title: "T", launchUri: "steam://rungameid/7", lastPlayed: 0, keywords: [], storeIds: ["steam:7"], artwork: {} };
+    const lutris = { ...steam, id: "lutris:1-t", source: "lutris" as const, launchUri: "lutris:rungameid/1", lutris: { id: 1, slug: "t", runner: "steam", service: "steam" } };
+    expect(launcherDetails(steam)).toEqual({ source: "steam" }); // "Launcher: Steam" says it all
+    expect(launcherDetails(mergeCopies(steam, [lutris]))).toEqual({ source: "steam" });
+    expect(launcherDetails(mergeCopies(lutris, [steam]))).toEqual({ source: "lutris", store: "Steam", runner: "steam" });
   });
 
   it("asks for the same Heroic art whichever copy is preferred", () => {

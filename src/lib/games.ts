@@ -100,6 +100,11 @@ export interface Game {
 /** A Heroic game's store backend and app name: what tells Heroic games apart. */
 export type HeroicRef = Pick<NonNullable<Game["heroic"]>, "runner" | "appName">;
 
+/** A Heroic game's id ("heroic:<runner>:<appName>"), which also keys its downloaded art. */
+export function heroicGameId(runner: string, appName: string): string {
+  return `heroic:${runner}:${appName}`;
+}
+
 /** What one launcher integration found. */
 export interface LauncherScan {
   launcher: GameSource;

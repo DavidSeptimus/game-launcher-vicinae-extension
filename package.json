@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
   "name": "game-launcher",
   "title": "Game Launcher",
-  "description": "Search and launch your installed games from Steam and Lutris.",
+  "description": "Search and launch your installed games from Steam, Lutris and Heroic.",
   "categories": [
     "Applications",
     "Fun"

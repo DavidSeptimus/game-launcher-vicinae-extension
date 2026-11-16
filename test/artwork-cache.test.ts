@@ -277,7 +277,7 @@ describe("ArtworkCache URL downloads (Heroic)", () => {
     expect(existsSync(next!)).toBe(false);
   });
 
-  it("treats a non-image response as transient: old art stays and the URL isn't marked missing", async () => {
+  it("handles a non-image response like a missing image", async () => {
     const dir = makeTempDir();
     const portal = { status: 200, body: Buffer.from("<html>Sign in to Wi-Fi</html>"), type: "text/html" };
     const routes: Routes = { [URL_A]: ok("old") };
@@ -287,8 +287,8 @@ describe("ArtworkCache URL downloads (Heroic)", () => {
     routes[URL_B] = portal;
     const req = { ...GAME, kind: "header" as const, url: URL_B };
     expect(await cache.ensure(req)).toBeUndefined();
-    expect(existsSync(old!)).toBe(true);
-    expect(cache.needsFetch(req)).toBe(true); // tried again next time
+    expect(cache.needsFetch(req)).toBe(false); // retried after a week, not on every open
+    expect(existsSync(old!)).toBe(false); // the old URL's art could never show again
   });
 
   it("keeps an app named '.' or '..' inside its own folder", async () => {

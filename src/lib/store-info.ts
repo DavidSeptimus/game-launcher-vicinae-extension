@@ -46,10 +46,13 @@ export interface LauncherDetails {
 /**
  * Store, platform and runner to show for a (possibly merged) game, all from one copy: the first,
  * preferred first, that records any of them. Mixing copies could pair one copy's store with
- * another's platform, describing a build that isn't the one launched.
+ * another's platform, describing a build that isn't the one launched. A Steam copy has nothing to
+ * add ("Launcher: Steam" says it all) but still stops the search, so another launcher's details
+ * aren't shown for a game Steam launches.
  */
 export function launcherDetails(game: Game): LauncherDetails {
   for (const copy of copiesOf(game)) {
+    if (copy.source === "steam") return { source: "steam" };
     const info = copyInfo(copy);
     if (!info.storeId && !info.platform && !info.runner) continue;
     return {

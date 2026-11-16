@@ -1,6 +1,6 @@
 /** Which artwork to cache for which games. Pure, so it can be unit-tested without Vicinae. */
 import type { ArtworkRequest, CachedKind } from "./artwork-cache";
-import { copiesOf, type Game, type GameArtwork } from "./games";
+import { copiesOf, type Game, type GameArtwork, heroicGameId } from "./games";
 import type { ViewSettings } from "./view-settings";
 
 /** Which cached artwork kinds the current layout actually displays. */
@@ -27,7 +27,8 @@ function artCopy(game: Game): Game | undefined {
 /** Key of a game's downloaded art (see artKeyOf): stable whichever launcher's copy an entry is shown as. */
 export function artKeyFor(game: Game): string | undefined {
   if (game.steam) return `steam:${game.steam.appid}`;
-  return artCopy(game)?.id;
+  const heroic = artCopy(game)?.heroic;
+  return heroic ? heroicGameId(heroic.runner, heroic.appName) : undefined;
 }
 
 /** Heroic art URLs to try per kind: a wide image stands in for a missing wide image of the other kind. */

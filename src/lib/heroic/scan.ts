@@ -11,7 +11,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
-import { acronyms, type Game, type GameArtwork, type GameCollection, type LauncherScan } from "../games";
+import { acronyms, type Game, type GameArtwork, type GameCollection, heroicGameId, type LauncherScan } from "../games";
 import { findHeroicInstalls, type HeroicInstall } from "./paths";
 
 export interface HeroicScanOptions {
@@ -39,10 +39,6 @@ export const HEROIC_STORES: Record<string, StoreInfo> = {
   zoom: { storeId: "zoomplatform", keywords: ["zoom"] },
   sideload: { keywords: [] },
 };
-
-export function heroicGameId(runner: string, appName: string): string {
-  return `heroic:${runner}:${appName}`;
-}
 
 export function heroicLaunchUri(runner: string, appName: string): string {
   return `heroic://launch?appName=${encodeURIComponent(appName)}&runner=${encodeURIComponent(runner)}`;
@@ -78,7 +74,7 @@ const ART_FIELDS = ["art_square", "art_cover", "art_background", "art_logo", "ar
 
 class Reader {
   readonly warnings: string[] = [];
-  /** False once an installed-games list couldn't be read. */
+  /** False once a file the installed games depend on (an installed list, or a store's library cache) couldn't be read. */
   complete = true;
 
   constructor(private readonly root: string) {}
@@ -117,15 +113,20 @@ function libraryEntries(value: unknown, key: string): unknown[] {
 }
 
 /**
- * Titles and art URLs from Heroic's per-store library caches, keyed by "<runner>:<appName>".
+ * Titles and art URLs from Heroic's per-store library caches, keyed by "<runner>:<appName>". They're
+ * the only source of some games' titles (e.g. third-party Epic installs), so an unreadable one makes
+ * the scan incomplete, keeping those games' cached art from being pruned.
  * Sideloaded apps have no separate cache: their library (already read) is the installed list too.
  */
-function readLibraries(r: Reader, sideloaded: unknown): Map<string, LibraryEntry> {
+function readLibraries(r: Reader, sideloaded: unknown, installedRunners: ReadonlySet<string>): Map<string, LibraryEntry> {
+  // Only a store with installed games depends on its cache; a stale one for an unused store doesn't count.
+  const read = (runner: string, file: string, what: string, key: string) =>
+    libraryEntries(r.json(`store_cache/${file}`, what, installedRunners.has(runner)), key);
   const sources: [runner: string, entries: unknown[]][] = [
-    ["legendary", libraryEntries(r.json("store_cache/legendary_library.json", "Epic library", false), "library")],
-    ["gog", libraryEntries(r.json("store_cache/gog_library.json", "GOG library", false), "games")],
-    ["nile", libraryEntries(r.json("store_cache/nile_library.json", "Amazon library", false), "library")],
-    ["zoom", libraryEntries(r.json("store_cache/zoom_library.json", "ZOOM library", false), "games")],
+    ["legendary", read("legendary", "legendary_library.json", "Epic library", "library")],
+    ["gog", read("gog", "gog_library.json", "GOG library", "games")],
+    ["nile", read("nile", "nile_library.json", "Amazon library", "library")],
+    ["zoom", read("zoom", "zoom_library.json", "ZOOM library", "games")],
     ["sideload", libraryEntries(sideloaded, "games")],
   ];
   const map = new Map<string, LibraryEntry>();
@@ -247,7 +248,15 @@ function cachedImage(root: string, url: string): string | undefined {
 
 /** A local image: an absolute path or file:// URL that exists. */
 function localImage(ref: string): string | undefined {
-  const path = ref.startsWith("file://") ? decodeURIComponent(ref.slice("file://".length)) : ref;
+  let path = ref;
+  if (ref.startsWith("file://")) {
+    const raw = ref.slice("file://".length);
+    try {
+      path = decodeURIComponent(raw);
+    } catch {
+      path = raw; // not escaped after all (e.g. a literal "%" in the file name)
+    }
+  }
   return isAbsolute(path) && existsSync(path) ? path : undefined;
 }
 
@@ -356,10 +365,11 @@ function readLibraryState(r: Reader) {
 function scanInstall(install: HeroicInstall) {
   const r = new Reader(install.configDir);
   const sideloaded = r.json("sideload_apps/library.json", "sideloaded apps", true);
-  const libraries = readLibraries(r, sideloaded);
+  const installed = readInstalled(r, sideloaded);
+  const libraries = readLibraries(r, sideloaded, new Set(installed.map((e) => e.runner)));
   const play = readPlayData(r);
   const games: Game[] = [];
-  for (const entry of readInstalled(r, sideloaded)) {
+  for (const entry of installed) {
     const game = toGame(install.configDir, entry, libraries.get(`${entry.runner}:${entry.appName}`), play.get(entry.appName));
     if (game) games.push(game);
   }

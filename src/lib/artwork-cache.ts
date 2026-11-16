@@ -21,13 +21,15 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { HeroicRef } from "./games";
-import { heroicGameId } from "./heroic/scan";
+import { type HeroicRef, heroicGameId } from "./games";
 import { extractLargestIcon } from "./image/ico";
 
-export type CachedKind = "portrait" | "header" | "hero" | "logo" | "icon";
+const CACHED_KINDS = ["portrait", "header", "hero", "logo", "icon"] as const;
+export type CachedKind = (typeof CACHED_KINDS)[number];
 /** The kinds Steam's CDN has 2x art for (its hero and logo art is already full size locally). */
 type ImageKind = "portrait" | "header";
+/** Kinds this cache keeps for Steam apps: CDN images and the icon from the client .ico. */
+export type SteamKind = ImageKind | "icon";
 const LAUNCHER_DIRS = ["steam", "heroic"] as const;
 const IMAGE_EXTS = ["jpg", "png", "webp", "gif"];
 
@@ -70,7 +72,7 @@ export function clientIconUrl(appid: number, hash: string): string {
 /** Downloaded art for a Steam app. */
 export interface SteamArtworkRequest {
   appid: number;
-  kind: CachedKind;
+  kind: SteamKind;
   /**
    * Whether the launcher already has a local copy of this kind (Steam's 1x
    * art). If so, only a 2x download is worth having; a 1x download would just
@@ -124,7 +126,8 @@ function extensionFor(type: string, url: string): string {
   return fromUrl === "jpeg" ? "jpg" : fromUrl && IMAGE_EXTS.includes(fromUrl) ? fromUrl : "jpg";
 }
 
-const HEROIC_FILE = /^(portrait|header|hero|logo|icon)-[0-9a-f]{16}\.(jpg|png|webp|gif|missing)$/;
+/** Every file name the cache writes for a Heroic game, for pruning anything else. */
+const HEROIC_FILE = new RegExp(`^(${CACHED_KINDS.join("|")})-[0-9a-f]{16}\\.(${[...IMAGE_EXTS, "missing"].join("|")})$`);
 
 export interface ArtworkCacheOptions {
   /** May be false to only use local .ico files and never touch the network. */
@@ -198,7 +201,6 @@ export class ArtworkCache {
       return IMAGE_EXTS.map((ext) => `${base}.${ext}`).find((p) => existsSync(p));
     }
     const { appid, kind, hasLocal } = req;
-    if (kind !== "icon" && kind !== "portrait" && kind !== "header") return undefined;
     const candidates = kind === "icon" ? ["icon.png"] : hasLocal ? [`${kind}@2x.jpg`] : [`${kind}@2x.jpg`, `${kind}@1x.jpg`];
     for (const name of candidates) {
       const path = this.file(appid, name);
@@ -217,7 +219,6 @@ export class ArtworkCache {
       // The file is named after its URL, so there's nothing to refresh: updated store art has a new URL.
       return !this.get(req);
     }
-    if (req.kind !== "icon" && req.kind !== "portrait" && req.kind !== "header") return false;
     if (req.kind === "icon" && !req.clientIcon) return false;
     if (!this.options.allowNetwork && !(req.kind === "icon" && req.localIco && existsSync(req.localIco))) return false;
     const missingAge = this.ageMs(this.markerFor(req.appid, req.kind));
@@ -237,7 +238,7 @@ export class ArtworkCache {
       if (isUrlRequest(req)) {
         await this.fetchUrl(req, epoch);
       } else {
-        const saved = req.kind === "icon" ? await this.fetchIcon(req, epoch) : await this.fetchImage(req, req.kind as ImageKind, epoch);
+        const saved = req.kind === "icon" ? await this.fetchIcon(req, epoch) : await this.fetchImage(req, req.kind, epoch);
         if (!saved) this.write(this.markerFor(req.appid, req.kind), Buffer.from(String(this.now())), epoch);
         else this.remove(this.markerFor(req.appid, req.kind));
       }
@@ -250,15 +251,13 @@ export class ArtworkCache {
 
   private async fetchUrl(req: UrlArtworkRequest, epoch: number): Promise<void> {
     const base = this.urlBase(req);
-    const response = await this.fetchBody(req.url);
-    // A 200 that isn't an image (e.g. a captive portal's page) says nothing about the art: treat it
-    // like a network error, keeping what's cached and trying again next time.
-    if (response && !asImage(response)) throw new Error(`Not an image: ${req.url}`);
-    const image = response;
+    // No image (404/403, or a 200 that isn't an image, like a store's "soft 404" or a captive portal's
+    // page) is recorded like Steam's: retried after a week, so it isn't fetched on every open.
+    const image = await this.download(req.url);
     const path = image ? `${base}.${extensionFor(image.type, req.url)}` : `${base}.missing`;
     this.write(path, image ? image.body : Buffer.from(String(this.now())), epoch);
-    // Art from an older URL (and its markers) is superseded, also when the store says the new URL has
-    // no image (404/403): nothing would show the old file again, and pruning keeps it while installed.
+    // Art from an older URL (and its markers) is superseded either way. This never removes art that's
+    // on screen: a URL is only fetched when it has no file, so the old file could never show again.
     const dir = join(base, "..");
     const prefix = `${req.kind}-`;
     for (const name of readdirSync(dir)) {
