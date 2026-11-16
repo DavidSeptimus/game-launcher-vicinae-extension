@@ -116,10 +116,12 @@ jobs:
           fi
           echo "mode=start" >> "$GITHUB_OUTPUT"
 
+      # package-manager-cache would look for pnpm (package.json's packageManager), which isn't installed here.
       - uses: actions/setup-node@v5
         if: steps.mode.outputs.mode == 'start'
         with:
           node-version: 22
+          package-manager-cache: false
 
       - name: Bump the version and changelog
         id: bump
@@ -447,6 +449,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          package-manager-cache: false
 
       - name: Extension checks - lint, types and tests
         working-directory: store/extensions/${{ env.EXTENSION }}
