@@ -1,0 +1,85 @@
+# When a release/vX.Y.Z bump pull request is merged into main, tags vX.Y.Z on the commit the store merged and creates
+# the GitHub release with the changelog section as its notes.
+#
+# Store commits made by store-release.yml carry a "Source-Commit: <sha>" trailer. scripts/store-state.sh finds the
+# last one made for this release in a merged store pull request; that commit gets the tag, so the tag matches what the
+# store received even if the release branch moved on afterwards. If the store hasn't merged the release yet, this
+# fails; re-run it once the store has.
+name: Tag release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash  # bash -eo pipefail
+
+env:
+  FORK: DavidSeptimus/vicinae-extensions
+  UPSTREAM: vicinaehq/extensions
+  BRANCH: game-launcher
+
+jobs:
+  tag:
+    if: github.event.pull_request.merged && startsWith(github.event.pull_request.head.ref, 'release/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # The merge commit, with history (tooling from main; the release branch is reachable through the merge).
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Tag what the store merged
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          tag=${HEAD_REF#release/}
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$HEAD_REF is not a release/vX.Y.Z branch"
+            exit 1
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$tag is already released." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          state=$(scripts/store-state.sh . "$tag")
+          echo "$state"
+          get() { sed -n "s/^$1=//p" <<<"$state"; }
+          shipped=$(get merged_source) store_pr=$(get merged_pr) extra=$(get merged_extra)
+          if [[ -z "$shipped" ]]; then
+            echo "::error::The store hasn't merged $tag yet: no merged store pull request has a commit from $HEAD_REF. Re-run this workflow once it has (Actions › Tag release › Re-run all jobs)."
+            exit 1
+          fi
+
+          version=$(git show "$shipped:package.json" | jq -r .version)
+          if [[ "v$version" != "$tag" ]]; then
+            echo "::error::The commit the store merged ($shipped) has version $version, not ${tag#v}"
+            exit 1
+          fi
+          git show "$shipped:CHANGELOG.md" > "$RUNNER_TEMP/CHANGELOG.md"
+          scripts/changelog-notes.sh "$RUNNER_TEMP/CHANGELOG.md" "$tag" > "$RUNNER_TEMP/notes.md"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$shipped" \
+            --title "$tag" --notes-file "$RUNNER_TEMP/notes.md"
+          echo "Tagged $tag at $shipped (merged by the store in https://github.com/$UPSTREAM/pull/$store_pr) and created the GitHub release." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+          warn() { echo "::warning::$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+          if (( extra > 0 )); then
+            warn "The store pull request also merged $extra commit(s) that aren't on $HEAD_REF (e.g. a maintainer's edit), so the store's copy differs from the tag. Bring those changes into main."
+          fi
+          parents=$(gh api "repos/$GITHUB_REPOSITORY/commits/$MERGE_SHA" --jq '.parents | length')
+          if (( parents < 2 )); then
+            warn "The bump pull request was squash- or rebase-merged, so the tagged commit isn't part of main's history. Merge bump pull requests with a merge commit."
+          fi

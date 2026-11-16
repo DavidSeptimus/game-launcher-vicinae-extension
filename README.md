@@ -1,3 +1,4 @@
+<!-- description -->
 # Game Launcher for Vicinae
 
 Search and launch your installed Linux games from [Vicinae](https://vicinae.com), in the spirit of Flow Launcher's
@@ -48,11 +49,11 @@ Everything is read from the launchers' own files on disk. Nothing is sent anywhe
 - [Vicinae](https://vicinae.com) 0.30 or newer.
 - Node.js 22.16 or newer, the runtime Vicinae runs extensions with. Lutris support relies on Node's built-in
   `node:sqlite`; with Lutris turned off, Node 22.2 or newer is enough.
-- To build from source: [pnpm](https://pnpm.io).
 
+<!-- end-description -->
 ## Installation
 
-The extension isn't in the Vicinae store yet. To install it from source:
+The extension isn't in the Vicinae store yet. To install it from source (needs [pnpm](https://pnpm.io)):
 
 ```bash
 git clone https://github.com/DavidSeptimus/game-launcher-vicinae-extension.git
@@ -61,13 +62,14 @@ pnpm install
 pnpm build    # builds and installs into ~/.local/share/vicinae/extensions/game-launcher
 ```
 
-Then open Vicinae and search for **Search Games**. You can give the command an alias such as `gl` (Flow Launcher's
-keyword) or a hotkey in Vicinae's settings, under Extensions › Game Launcher.
+Then open Vicinae and search for **Search Games**.
 
+<!-- description -->
 ## Usage
 
 Open **Search Games**, type to filter, and press **Enter** to launch the selected game. If the launcher isn't
-running yet (e.g. Steam), it starts first and then launches the game.
+running yet (e.g. Steam), it starts first and then launches the game. You can give the command an alias such as `gl`
+(Flow Launcher's keyword) or a hotkey in Vicinae's settings, under Extensions › Game Launcher.
 
 ### Actions and shortcuts
 
@@ -259,69 +261,12 @@ Paths are relative to Heroic's config folder (`~/.config/heroic`, or `~/.var/app
 | Artwork | `icons/<app name>.jpg/.png`, `images-cache/<sha256 of the image URL>`, store art URLs from the library caches |
 | Launch | `heroic://launch?appName=<app name>&runner=<store>` |
 
+<!-- end-description -->
 ## Development
 
-Toolchain: Node 22 (ideally the same one Vicinae uses) and pnpm. There are no native dependencies; the VDF parsers,
-the `.ico` extractor and the PNG encoder are all plain TypeScript.
+Building, testing, the project layout and the release process are covered in [docs/development.md](docs/development.md).
 
-```bash
-pnpm install
-pnpm dev          # live-reloading dev session inside the running Vicinae
-pnpm test         # unit tests (synthetic Steam/Lutris/Heroic fixtures, no real installs needed)
-pnpm typecheck
-pnpm lint         # validates the extension manifest
-pnpm build        # builds and installs into ~/.local/share/vicinae/extensions
-
-LOCAL_STEAM=1 pnpm test local-steam                     # smoke test against this machine's Steam install
-BENCH=1 pnpm exec vitest run scan-bench --silent=false  # scan timing on synthetic 500/2000-game libraries
-```
-
-When editing several files at once, stop `pnpm dev` first: it rebuilds on every save, and a half-finished change
-can load into Vicinae.
-
-### Project layout
-
-```
-src/search-games.tsx            the command: scanning, merging, filters, hidden state, dropdown
-src/components/                 game grid and list, action panels, Launcher Priority view
-src/hooks/use-hires-artwork.ts  fills the artwork cache in the background; re-renders as art arrives
-src/lib/games.ts                launcher-independent Game model, launcher names and default order
-src/lib/library.ts              scanLaunchers (disk) + combineLibrary (merge by priority, in memory), empty states
-src/lib/steam/                  Steam integration: install detection, manifests, appinfo.vdf, collections, artwork
-src/lib/lutris/                 Lutris integration: install detection, read-only SQLite, categories, artwork
-src/lib/heroic/                 Heroic integration: install detection, per-store JSON lists, favourites, artwork
-src/lib/vdf/                    text and binary KeyValues (VDF) parsers
-src/lib/image/                  .ico extraction and a minimal PNG encoder
-src/lib/artwork-cache.ts        high-resolution artwork cache (Steam CDN, Heroic art URLs): download, refresh, prune, clear
-src/lib/artwork-requests.ts     which artwork the current layout needs
-src/lib/visibility.ts           hiding rules: ours and the launcher's, with "shown here" overrides
-src/lib/game-views.ts           dropdown views: installed, per launcher, hidden, collections
-src/lib/launcher-priority.ts    launcher order: normalize, load, save, move
-test/                           vitest suites and fixtures (fake Steam/Lutris/Heroic installs, appinfo/.ico writers)
-assets/, assets-src/            extension icon (PNG), its SVG source, and alternate colour schemes
-docs/screenshots/               README screenshots (WebP)
-```
-
-### Adding a launcher
-
-Each launcher is a module that returns a `LauncherScan` (see `src/lib/games.ts`): its games, collections, hidden
-list, where it looked, and any warnings or settings problems. To add one:
-
-1. Add it to `GameSource`, `LAUNCHER_NAMES` and `LAUNCHER_PRECEDENCE` in `games.ts`.
-2. Write `src/lib/<launcher>/scan.ts`. Detect a single install (folder setting first), give games ids of the form
-   `<launcher>:<stable id>`, set a `launchUri`, and fill in `storeIds` (e.g. `gog:<id>`) so duplicates merge.
-3. Call it from `scanLaunchers` in `library.ts`, and add a not-found hint for the empty state.
-4. Add an on/off checkbox and a folder setting to `package.json`, and read them in `search-games.tsx`.
-
-The extension icon (deep sea) is rendered from `assets-src/extension_icon.svg` with:
-
-```bash
-magick -background none -density 192 assets-src/extension_icon.svg -resize 512x512 -depth 8 assets/extension_icon.png
-```
-
-Alternate colour schemes (charcoal and amber, midnight teal, plum) are kept in `assets-src/alternates/`. To switch, copy one
-over `assets-src/extension_icon.svg` and re-render. Only `assets/` ships with the extension.
-
+<!-- description -->
 ## AI disclosure
 
 This extension was developed with AI assistance. Most of the code, tests and documentation were written by
@@ -338,3 +283,5 @@ Launcher. Not affiliated with Valve, Lutris, Heroic Games Launcher or Vicinae.
 ## License
 
 [MIT](LICENSE)
+
+<!-- end-description -->

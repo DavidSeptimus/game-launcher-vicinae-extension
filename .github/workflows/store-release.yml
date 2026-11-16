@@ -1,0 +1,613 @@
+# Releases the extension to the Vicinae store. See docs/development.md ("Releasing to the Vicinae store").
+#
+# Run workflow (from main): bumps the version and dates the changelog on a new release/vX.Y.Z branch, sends that
+#   commit to the store fork, and opens the bump pull request into main.
+# Push to release/vX.Y.Z: sends the branch's new commits to the store until the store merges the release (review
+#   fixes, or a retry after a failed run or a store pull request closed without merging).
+#
+# version  checks no other release is in flight, works out the version and edits package.json and CHANGELOG.md
+#          (keep-a-changelog; read-only token).
+# plan     checks the edit, commits it on a new release/vX.Y.Z branch, or picks up the pushed release branch
+#          (no third-party code).
+# prepare  decides where the release goes on the fork, builds the store change as a patch and uploads it
+#          (no third-party code).
+# checks   applies the patch and runs the store's checks and ours (installs dependencies; read-only token).
+# publish  verifies the patch, commits it and pushes it to the fork with the fork token (no third-party code).
+# finish   reports what happened and opens the bump pull request once the store has the release.
+#
+# Every store commit made here ends with a "Source-Commit: <sha>" trailer naming the release-branch commit it came
+# from; scripts/store-state.sh reads them to tell which release the fork branch holds and what the store merged.
+name: Store release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      version:
+        description: Or an exact version, e.g. 1.0.0 (overrides the bump)
+        required: false
+  push:
+    branches: ['release/v*']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash  # bash -eo pipefail
+
+# One run at a time per branch. GitHub keeps only the newest pending run per group; for a release branch that run
+# sends the newest commits anyway.
+concurrency:
+  group: store-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  EXTENSION: game-launcher
+  FORK: DavidSeptimus/vicinae-extensions
+  UPSTREAM: vicinaehq/extensions
+  BRANCH: game-launcher
+  KEEP_A_CHANGELOG: keep-a-changelog@3.2.0
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+      tag: ${{ steps.mode.outputs.tag || steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Start or continue
+        id: mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT" == push ]]; then
+            tag=${GITHUB_REF_NAME#release/}
+            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::$GITHUB_REF_NAME is not a release/vX.Y.Z branch"
+              exit 1
+            fi
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            # Finished once tagged (release-tag.yml tags only after the store merged and the bump PR merged).
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "mode=done" >> "$GITHUB_OUTPUT"
+              echo "$tag is released; pushes to $GITHUB_REF_NAME aren't sent anywhere." | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              echo "mode=update" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          if [[ "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "::error::Start a release from main."
+            exit 1
+          fi
+          # One release at a time: no open bump pull request here, nothing in flight on the store side.
+          open=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --json headRefName \
+            --jq '[.[].headRefName | select(startswith("release/v"))] | join(", ")')
+          if [[ -n "$open" ]]; then
+            echo "::error::A release is still in progress ($open). Finish it (the store merges it, then you merge its bump pull request) or abandon it (see docs/development.md) before starting another."
+            exit 1
+          fi
+          state=$(scripts/store-state.sh .)
+          open_pr=$(sed -n 's/^open_pr=//p' <<<"$state")
+          tip=$(sed -n 's/^tip=//p' <<<"$state")
+          tip_pr=$(sed -n 's/^tip_pr=//p' <<<"$state")
+          if [[ -n "$open_pr" ]]; then
+            echo "::error::Store pull request https://github.com/$UPSTREAM/pull/$open_pr is still open. Finish that release, or abandon it (see docs/development.md), before starting another."
+            exit 1
+          fi
+          if [[ -n "$tip" && "$tip_pr" == none ]]; then
+            echo "::error::The fork's $BRANCH branch holds a release that never became a store pull request. Open one for it, or abandon it (see docs/development.md), before starting another."
+            exit 1
+          fi
+          echo "mode=start" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v5
+        if: steps.mode.outputs.mode == 'start'
+        with:
+          node-version: 22
+
+      - name: Bump the version and changelog
+        id: bump
+        if: steps.mode.outputs.mode == 'start'
+        env:
+          BUMP: ${{ inputs.bump }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          scripts/changelog-notes.sh CHANGELOG.md Unreleased > /dev/null
+          npm install --silent --no-save --ignore-scripts --prefix "$RUNNER_TEMP/kac" "$KEEP_A_CHANGELOG"
+          changelog() { "$RUNNER_TEMP/kac/node_modules/.bin/changelog" "$@"; }
+          previous=$(changelog --latest-release)
+          changelog --format=markdownlint --url="https://github.com/$GITHUB_REPOSITORY" \
+            --release --version="${VERSION:-$BUMP}" --create=none
+          version=$(changelog --latest-release)
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$version' is not a release version (X.Y.Z). Pre-releases are not sent to the store."
+            exit 1
+          fi
+          if [[ -n "$previous" && "$(printf '%s\n' "$previous" "$version" | sort -V | tail -1)" != "$version" ]]; then
+            echo "::error::$version is lower than the last release, $previous"
+            exit 1
+          fi
+          npm version "$version" --no-git-tag-version
+          tag=v$version
+          if [[ -n "$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$tag" "refs/heads/release/$tag")" ]]; then
+            echo "::error::$tag already exists as a tag or a release branch."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/bump"
+          cp package.json CHANGELOG.md "$RUNNER_TEMP/bump/"
+          git diff
+
+      - uses: actions/upload-artifact@v4
+        if: steps.mode.outputs.mode == 'start'
+        with:
+          name: version-bump
+          path: ${{ runner.temp }}/bump
+          retention-days: 7
+
+  plan:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ needs.version.outputs.tag }}
+      mode: ${{ needs.version.outputs.mode }}
+      ref: ${{ steps.commit.outputs.ref || github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        if: needs.version.outputs.mode == 'start'
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        if: needs.version.outputs.mode == 'start'
+        with:
+          name: version-bump
+          path: ${{ runner.temp }}/bump
+
+      # The edit came from third-party code, so check it's only the bump before committing it with a write token:
+      # package.json may change only in "version", CHANGELOG.md only in release headings and link references.
+      - name: Check the bump
+        if: needs.version.outputs.mode == 'start'
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          new=$RUNNER_TEMP/bump
+          if [[ "$(jq -r .version "$new/package.json")" != "${TAG#v}" ]]; then
+            echo "::error::package.json's new version isn't ${TAG#v}"
+            exit 1
+          fi
+          if ! diff <(jq -S 'del(.version)' package.json) <(jq -S 'del(.version)' "$new/package.json"); then
+            echo "::error::The bump changed package.json beyond its version"
+            exit 1
+          fi
+          body() { grep -v -e '^## \[' -e '^\[[^]]*\]: ' -e '^[[:space:]]*$' "$1" || true; }
+          if ! diff <(body CHANGELOG.md) <(body "$new/CHANGELOG.md"); then
+            echo "::error::The bump changed CHANGELOG.md beyond release headings and links"
+            exit 1
+          fi
+          if ! grep -qx "## \[${TAG#v}\] - [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}" "$new/CHANGELOG.md"; then
+            echo "::error::CHANGELOG.md has no '## [${TAG#v}] - date' heading after the bump"
+            exit 1
+          fi
+
+      - name: Commit and push the release branch
+        id: commit
+        if: needs.version.outputs.mode == 'start'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          cp "$RUNNER_TEMP/bump/package.json" "$RUNNER_TEMP/bump/CHANGELOG.md" .
+          git switch --quiet -c "release/$TAG"
+          git add package.json CHANGELOG.md
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit --quiet -m "Release $TAG"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c http.extraheader="AUTHORIZATION: basic $auth" push --quiet origin "release/$TAG"
+          echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Started $TAG on release/$TAG" >> "$GITHUB_STEP_SUMMARY"
+
+  prepare:
+    needs: plan
+    if: needs.plan.outputs.mode != 'done'
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      REF: ${{ needs.plan.outputs.ref }}
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+      digest: ${{ steps.diff.outputs.digest }}
+      skip: ${{ steps.base.outputs.skip }}
+      base: ${{ steps.base.outputs.base }}
+      base_repo: ${{ steps.base.outputs.base_repo }}
+      tip: ${{ steps.base.outputs.tip }}
+      pr: ${{ steps.base.outputs.pr }}
+    steps:
+      # The release, with history for telling releases apart and listing follow-up commits.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.ref }}
+          path: ext
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The release tooling, from the commit this workflow runs from.
+      - uses: actions/checkout@v5
+        with:
+          path: tools
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Read the release notes from CHANGELOG.md
+        run: tools/scripts/changelog-notes.sh ext/CHANGELOG.md "$TAG" > "$RUNNER_TEMP/notes.md"
+
+      #   the store has merged this release                         -> nothing to send;
+      #   the fork branch holds this release, PR open or unsubmitted  -> add a commit to it;
+      #   the fork branch holds another release, open or unsubmitted -> stop;
+      #   otherwise (no branch, an earlier release, this release's PR closed without merging) -> start from store main.
+      - name: Choose where the release goes
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git init --quiet store
+          state=$(STORE_DIR=store tools/scripts/store-state.sh ext "$TAG")
+          echo "$state"
+          get() { sed -n "s/^$1=//p" <<<"$state"; }
+          open_pr=$(get open_pr) tip=$(get tip) tip_pr=$(get tip_pr) tip_release=$(get tip_release)
+
+          skip=false base="" base_repo=""
+          if [[ -n "$(get merged_pr)" ]]; then
+            skip=true
+            echo "The store merged $TAG in https://github.com/$UPSTREAM/pull/$(get merged_pr); nothing to send." \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ -n "$open_pr" || ( -n "$tip" && "$tip_pr" == none ) ]]; then
+            if [[ "$tip_release" != "$TAG" ]]; then
+              what="Store pull request https://github.com/$UPSTREAM/pull/$open_pr is open"
+              [[ -z "$open_pr" ]] && what="The fork's $BRANCH branch holds an unsubmitted release"
+              echo "::error::$what for ${tip_release:-an unknown release}, not $TAG. Finish or abandon that release (see docs/development.md), then push to release/$TAG again."
+              exit 1
+            fi
+            base=$tip base_repo=$FORK
+            if [[ -n "$open_pr" ]]; then
+              echo "Adding to the fork's $BRANCH branch (store pull request #$open_pr)"
+            else
+              echo "Adding to the fork's $BRANCH branch (no store pull request yet)"
+            fi
+          else
+            base=$(git ls-remote "https://github.com/$UPSTREAM.git" refs/heads/main | cut -f1) base_repo=$UPSTREAM
+            if [[ "$tip_pr" == closed && "$tip_release" == "$TAG" ]]; then
+              echo "The store pull request for $TAG was closed without merging; sending $TAG again from the store's main"
+            else
+              echo "Starting from the store's main"
+            fi
+          fi
+          {
+            echo "pr=$open_pr"
+            echo "tip=$tip"
+            echo "skip=$skip"
+            echo "base=$base"
+            echo "base_repo=$base_repo"
+            echo "last_sync=$(get last_sync)"
+            echo "last_source=$(get last_source)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the base
+        if: steps.base.outputs.skip == 'false'
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+          BASE_REPO: ${{ steps.base.outputs.base_repo }}
+        run: |
+          if [[ "$BASE_REPO" != "$FORK" ]]; then
+            git -C store fetch --quiet --depth=1 "https://github.com/$BASE_REPO.git" "$BASE"
+          fi
+          git -C store checkout --quiet "$BASE"
+
+      # Copies files and resolves the lockfile; npm runs no package scripts with --package-lock-only.
+      - name: Sync the extension
+        if: steps.base.outputs.skip == 'false'
+        run: SOURCE_REPO=ext tools/scripts/sync-to-store.sh store HEAD
+
+      - name: Build the patch and commit message
+        id: diff
+        env:
+          SKIP: ${{ steps.base.outputs.skip }}
+          BASE: ${{ steps.base.outputs.base }}
+          BASE_REPO: ${{ steps.base.outputs.base_repo }}
+          LAST_SYNC: ${{ steps.base.outputs.last_sync }}
+          LAST_SOURCE: ${{ steps.base.outputs.last_source }}
+        run: |
+          if [[ "$SKIP" == true ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cd store
+          git add --all "extensions/$EXTENSION"
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "The store branch already has this content; nothing to send." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Commits on the fork branch after our last sync came from someone else (e.g. a store maintainer). Their
+          # changes must survive this sync: reverse-applying them to the synced tree has to work.
+          if [[ "$BASE_REPO" == "$FORK" && "$LAST_SYNC" != "$BASE" ]]; then
+            git diff --binary "$LAST_SYNC" "$BASE" -- "extensions/$EXTENSION" > "$RUNNER_TEMP/theirs.patch"
+            if [[ -s "$RUNNER_TEMP/theirs.patch" ]] && ! git apply --cached --check -R "$RUNNER_TEMP/theirs.patch" 2>/dev/null; then
+              {
+                echo "::error::The fork's $BRANCH branch has commits that didn't come from this workflow, and this sync would undo their changes. Copy those changes into release/$TAG and push again."
+                git log --format='  %h %an: %s' "$LAST_SYNC..$BASE"
+              } >&2
+              exit 1
+            fi
+          fi
+
+          mkdir -p "$RUNNER_TEMP/release"
+          git diff --cached --binary --full-index --no-renames > "$RUNNER_TEMP/release/changes.patch"
+          footer=$(printf 'Source: https://github.com/%s/tree/%s\n\nSource-Commit: %s' "$GITHUB_REPOSITORY" "$REF" "$REF")
+          if [[ "$BASE_REPO" == "$FORK" ]]; then
+            # Follow-up commits on the release branch since the last sync.
+            {
+              echo "fix($EXTENSION): $TAG follow-up changes"
+              echo
+              git -C ../ext log --reverse --format='- %s' "$LAST_SOURCE..$REF"
+              echo
+              echo "$footer"
+            } > "$RUNNER_TEMP/release/commit.txt"
+          elif [[ -z "$(git ls-tree --name-only HEAD -- "extensions/$EXTENSION")" ]]; then
+            # First submission: lead with what the extension is, for the store reviewers.
+            {
+              echo "feat: add $EXTENSION extension"
+              echo
+              jq -r .description "extensions/$EXTENSION/package.json"
+              echo
+              cat "$RUNNER_TEMP/notes.md"
+              echo
+              echo "$footer"
+            } > "$RUNNER_TEMP/release/commit.txt"
+          else
+            {
+              echo "feat($EXTENSION): $TAG"
+              echo
+              cat "$RUNNER_TEMP/notes.md"
+              echo
+              echo "$footer"
+            } > "$RUNNER_TEMP/release/commit.txt"
+          fi
+          # publish checks the artifact against this, so a later job can't swap it.
+          digest=$(cd "$RUNNER_TEMP/release" && sha256sum changes.patch commit.txt | sha256sum | cut -d' ' -f1)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.diff.outputs.changed == 'true'
+        with:
+          name: store-release
+          path: ${{ runner.temp }}/release
+          retention-days: 7
+
+  checks:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: store-release
+          path: release
+
+      - name: Check out the base and apply the release
+        env:
+          BASE: ${{ needs.prepare.outputs.base }}
+          BASE_REPO: ${{ needs.prepare.outputs.base_repo }}
+        run: |
+          git init --quiet store
+          git -C store fetch --quiet --depth=1 "https://github.com/$BASE_REPO.git" "$BASE"
+          git -C store checkout --quiet FETCH_HEAD
+          git -C store apply --index ../release/changes.patch
+
+      # The store's own pull-request checks, run the way its pr-check.yml runs them:
+      # validate on a clean tree, then npm ci and bunx vici build on the runner's default Node.
+      # bun-version stays "latest" because the store's CI uses latest.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Store check - validate
+        working-directory: store
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun scripts/validate-extension.ts "$EXTENSION"
+
+      - name: Store check - build
+        working-directory: store/extensions/${{ env.EXTENSION }}
+        run: |
+          npm ci --legacy-peer-deps
+          bunx vici build --out "$RUNNER_TEMP/build"
+
+      # Our own checks on top, on the Node version Vicinae runs extensions with.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Extension checks - lint, types and tests
+        working-directory: store/extensions/${{ env.EXTENSION }}
+        run: |
+          npx vici lint
+          npx tsc --noEmit
+          npm test
+
+  publish:
+    needs: [prepare, checks]
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: store-release
+          path: release
+
+      - name: Verify the release patch
+        env:
+          DIGEST: ${{ needs.prepare.outputs.digest }}
+        run: |
+          actual=$(cd release && sha256sum changes.patch commit.txt | sha256sum | cut -d' ' -f1)
+          if [[ "$actual" != "$DIGEST" ]]; then
+            echo "::error::The release artifact doesn't match what prepare built"
+            exit 1
+          fi
+          outside=$(git apply --numstat release/changes.patch | cut -f3- | { grep -v "^extensions/$EXTENSION/" || true; })
+          if [[ -n "$outside" ]]; then
+            echo "::error::The release patch touches files outside extensions/$EXTENSION:"
+            echo "$outside"
+            exit 1
+          fi
+
+      # Only needed when the branch starts from the store's main: the fork must have that commit to push on top of it.
+      - name: Bring the fork's main up to date
+        if: needs.prepare.outputs.base_repo != env.FORK
+        env:
+          GH_TOKEN: ${{ secrets.STORE_FORK_TOKEN }}
+        run: gh repo sync "$FORK" --source "$UPSTREAM" --branch main
+
+      - name: Commit
+        env:
+          BASE: ${{ needs.prepare.outputs.base }}
+        run: |
+          git init --quiet store
+          cd store
+          git fetch --quiet --depth=1 "https://github.com/$FORK.git" "$BASE"
+          git checkout --quiet -B "$BRANCH" FETCH_HEAD
+          git apply --index --include="extensions/$EXTENSION/*" ../release/changes.patch
+          git -c user.name="David Septimus" -c user.email="110404901+DavidSeptimus@users.noreply.github.com" \
+            commit --quiet -F ../release/commit.txt
+
+      # The lease makes the push fail if the fork's branch moved since "prepare" looked at it.
+      - name: Push to the fork
+        working-directory: store
+        env:
+          TOKEN: ${{ secrets.STORE_FORK_TOKEN }}
+          TIP: ${{ needs.prepare.outputs.tip }}
+        run: |
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          git -c http.extraheader="AUTHORIZATION: basic $auth" push --quiet \
+            --force-with-lease="refs/heads/$BRANCH:$TIP" "https://github.com/$FORK.git" "HEAD:refs/heads/$BRANCH"
+
+  # Runs once the store has the release: just pushed, already on the fork's branch, or already merged.
+  finish:
+    needs: [plan, prepare, publish]
+    if: >-
+      always() && needs.prepare.result == 'success' &&
+      (needs.publish.result == 'success' || needs.prepare.outputs.changed == 'false')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.ref }}
+          persist-credentials: false
+
+      - name: Store summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.prepare.outputs.pr }}
+          CHANGED: ${{ needs.prepare.outputs.changed }}
+          SKIP: ${{ needs.prepare.outputs.skip }}
+          BASE_REPO: ${{ needs.prepare.outputs.base_repo }}
+        run: |
+          if [[ "$SKIP" == true ]]; then
+            exit 0  # prepare already said the store has merged this release
+          fi
+          if [[ "$CHANGED" != true && "$BASE_REPO" != "$FORK" ]]; then
+            exit 0  # the store's main already had this content; nothing went to the fork
+          fi
+          if [[ -n "$PR" ]]; then
+            if [[ "$CHANGED" == true ]]; then
+              echo "Sent to the store pull request https://github.com/$UPSTREAM/pull/$PR." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 0
+          fi
+
+          # The fork's branch holds the release with no store pull request yet.
+          # Title from its first commit; description from every commit on it, oldest first, without trailers.
+          owner=${FORK%%/*}
+          messages=$(gh api "repos/$UPSTREAM/compare/main...$owner:$BRANCH" \
+            --jq '[.commits[].commit.message | split("\n") | map(select(startswith("Source-Commit: ") | not)) | join("\n") | rtrimstr("\n")]')
+          if [[ $(jq length <<<"$messages") -eq 0 ]]; then
+            exit 0
+          fi
+          title=$(jq -r '.[0] | split("\n")[0]' <<<"$messages")
+          if [[ $(jq length <<<"$messages") -eq 1 ]]; then
+            body=$(jq -r '.[0] | split("\n")[2:] | join("\n")' <<<"$messages")
+          else
+            body=$(jq -r 'map(split("\n") | "## " + .[0] + "\n\n" + (.[2:] | join("\n"))) | join("\n\n")' <<<"$messages")
+          fi
+          url="https://github.com/$UPSTREAM/compare/main...$owner:${FORK#*/}:$BRANCH?expand=1"
+          url+="&title=$(jq -rn --arg v "$title" '$v|@uri')"
+          encoded_body=$(jq -rn --arg v "$body" '$v|@uri')
+          # Long query strings get cut off or rejected, so only short descriptions go in the link.
+          if (( ${#encoded_body} <= 6000 )); then
+            url+="&body=$encoded_body"
+            prefilled="title and description prefilled"
+          else
+            prefilled="title prefilled; paste the description below"
+          fi
+          {
+            echo "## $TAG is on the fork, ready for a store pull request"
+            echo
+            echo "[Open the store pull request]($url) ($prefilled)."
+            echo
+            echo "### Description"
+            echo
+            echo '````markdown'
+            echo "$body"
+            echo '````'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open the bump pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head="release/$TAG"
+          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$head" --state all --json state,url)
+          existing=$(jq -r '[.[] | select(.state == "OPEN" or .state == "MERGED")][0].url // empty' <<<"$prs")
+          if [[ -n "$existing" ]]; then
+            echo "Bump pull request: $existing" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "Sets the version to ${TAG#v} and dates its changelog section. This branch is what goes to the store."
+            echo
+            echo "**Merge this with a merge commit once the store has merged $TAG** ([store pull requests](https://github.com/$UPSTREAM/pulls?q=is%3Apr+head%3A$BRANCH+author%3A${FORK%%/*})). Merging tags $TAG on the commit the store merged and creates the GitHub release; if the store hasn't merged it yet, tagging fails and can be re-run later."
+            echo
+            echo "Changes the store reviewers ask for go on this branch; each push updates the store pull request."
+            echo
+            echo "## Release notes"
+            echo
+            scripts/changelog-notes.sh CHANGELOG.md "$TAG"
+          } > "$RUNNER_TEMP/body.md"
+          url=$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$head" \
+            --title "Release $TAG" --body-file "$RUNNER_TEMP/body.md")
+          echo "Bump pull request: $url" >> "$GITHUB_STEP_SUMMARY"
