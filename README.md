@@ -53,7 +53,9 @@ Everything is read from the launchers' own files on disk. Nothing is sent anywhe
 <!-- end-description -->
 ## Installation
 
-The extension isn't in the Vicinae store yet. To install it from source (needs [pnpm](https://pnpm.io)):
+Install **Game Launcher** from Vicinae's extension store.
+
+To build it from source instead (needs [pnpm](https://pnpm.io)):
 
 ```bash
 git clone https://github.com/DavidSeptimus/game-launcher-vicinae-extension.git
