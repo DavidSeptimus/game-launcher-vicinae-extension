@@ -603,9 +603,9 @@ jobs:
           {
             echo "Sets the version to ${TAG#v} and dates its changelog section. This branch is what goes to the store."
             echo
-            echo "**Merge this with a merge commit once the store has merged $TAG** ([store pull requests](https://github.com/$UPSTREAM/pulls?q=is%3Apr+head%3A$BRANCH+author%3A${FORK%%/*})). Merging tags $TAG on the commit the store merged and creates the GitHub release; if the store hasn't merged it yet, tagging fails and can be re-run later."
+            echo "**Merge this with a merge commit once the store has merged $TAG** ([store pull requests](https://github.com/$UPSTREAM/pulls?q=is%3Apr+head%3A$BRANCH+author%3A${FORK%%/*})). Merging tags $TAG on this branch's head and creates the GitHub release; if the store hasn't merged it yet, tagging fails and can be re-run later."
             echo
-            echo "Changes the store reviewers ask for go on this branch; each push updates the store pull request."
+            echo "Changes the store reviewers ask for go on this branch; each push updates the store pull request. If a store maintainer changed the extension in the store pull request, copy their change here before merging (see docs/development.md)."
             echo
             echo "## Release notes"
             echo

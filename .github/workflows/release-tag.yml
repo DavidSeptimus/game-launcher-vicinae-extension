@@ -1,10 +1,15 @@
-# When a release/vX.Y.Z bump pull request is merged into main, tags vX.Y.Z on the commit the store merged and creates
-# the GitHub release with the changelog section as its notes.
+# When a release/vX.Y.Z bump pull request is merged into main, tags vX.Y.Z on the release branch and creates the
+# GitHub release with the changelog section as its notes.
 #
-# Store commits made by store-release.yml carry a "Source-Commit: <sha>" trailer. scripts/store-state.sh finds the
-# last one made for this release in a merged store pull request; that commit gets the tag, so the tag matches what the
-# store received even if the release branch moved on afterwards. If the store hasn't merged the release yet, this
-# fails; re-run it once the store has.
+# The tag goes on the newest commit of the release branch's own line (first parents) that isn't a merge: the head, or
+# the commit before it when the head merged main in to resolve conflicts, so main's newer work stays out of the tag.
+# That commit is the release as the store published it once changes a store maintainer made in the store pull request
+# have been copied into release/vX.Y.Z by hand (docs/development.md); nothing checks that. Tagging is refused if a merge
+# commit sits between the last commit sent to the store and that commit, since main would then be in the tag.
+#
+# Store commits made by store-release.yml carry a "Source-Commit: <sha>" trailer, which scripts/store-state.sh uses to
+# find the store pull request that merged this release and the last commit sent to it. If the store hasn't merged the
+# release yet, this fails; re-run it once the store has.
 name: Tag release
 
 on:
@@ -38,10 +43,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Tag what the store merged
+      - name: Tag the release branch
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           tag=${HEAD_REF#release/}
@@ -57,29 +63,46 @@ jobs:
           state=$(scripts/store-state.sh . "$tag")
           echo "$state"
           get() { sed -n "s/^$1=//p" <<<"$state"; }
-          shipped=$(get merged_source) store_pr=$(get merged_pr) extra=$(get merged_extra)
-          if [[ -z "$shipped" ]]; then
+          sent=$(get merged_source) store_pr=$(get merged_pr)
+          if [[ -z "$sent" ]]; then
             echo "::error::The store hasn't merged $tag yet: no merged store pull request has a commit from $HEAD_REF. Re-run this workflow once it has (Actions › Tag release › Re-run all jobs)."
             exit 1
           fi
+          store_commit=$(gh api "repos/$UPSTREAM/pulls/$store_pr" --jq .merge_commit_sha)
 
-          version=$(git show "$shipped:package.json" | jq -r .version)
-          if [[ "v$version" != "$tag" ]]; then
-            echo "::error::The commit the store merged ($shipped) has version $version, not ${tag#v}"
+          # A squash or rebase merge leaves the head out of the merge commit's history.
+          git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null || git fetch --quiet origin "$HEAD_SHA"
+          target=$(git rev-list --first-parent --no-merges -n1 "$HEAD_SHA")
+          merges=$(git log --merges --format='%h %s' "$sent..$target" | paste -sd ';' | sed 's/;/; /g')
+          if [[ -n "$merges" ]]; then
+            echo "::error::$HEAD_REF has a merge commit ($merges) between the last commit sent to the store (${sent:0:7}) and ${target:0:7}, so tagging ${target:0:7} would release main's newer work as $tag. Nothing was tagged. Tag the commit that matches the store by hand: gh release create $tag --target <commit> --title $tag --notes-file <notes> (see docs/development.md)."
             exit 1
           fi
-          git show "$shipped:CHANGELOG.md" > "$RUNNER_TEMP/CHANGELOG.md"
-          scripts/changelog-notes.sh "$RUNNER_TEMP/CHANGELOG.md" "$tag" > "$RUNNER_TEMP/notes.md"
-          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$shipped" \
-            --title "$tag" --notes-file "$RUNNER_TEMP/notes.md"
-          echo "Tagged $tag at $shipped (merged by the store in https://github.com/$UPSTREAM/pull/$store_pr) and created the GitHub release." \
-            >> "$GITHUB_STEP_SUMMARY"
-
-          warn() { echo "::warning::$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
-          if (( extra > 0 )); then
-            warn "The store pull request also merged $extra commit(s) that aren't on $HEAD_REF (e.g. a maintainer's edit), so the store's copy differs from the tag. Bring those changes into main."
+          version=$(git show "$target:package.json" | jq -r .version)
+          if [[ "v$version" != "$tag" ]]; then
+            echo "::error::${target:0:7} on $HEAD_REF has version $version, not ${tag#v}"
+            exit 1
           fi
+
+          git show "$target:CHANGELOG.md" > "$RUNNER_TEMP/CHANGELOG.md"
+          {
+            scripts/changelog-notes.sh "$RUNNER_TEMP/CHANGELOG.md" "$tag"
+            echo
+            echo "Published to the Vicinae store in $UPSTREAM#$store_pr (merge commit $UPSTREAM@$store_commit)."
+          } > "$RUNNER_TEMP/notes.md"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$target" \
+            --title "$tag" --notes-file "$RUNNER_TEMP/notes.md"
+          {
+            echo "Tagged $tag at ${target:0:7} and created the GitHub release. The store merged it in https://github.com/$UPSTREAM/pull/$store_pr; the last commit sent from this repo was ${sent:0:7}."
+            if [[ "$target" != "$HEAD_SHA" ]]; then
+              echo
+              echo "The head (${HEAD_SHA:0:7}) merges main in, so the tag goes on the commit before it."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
           parents=$(gh api "repos/$GITHUB_REPOSITORY/commits/$MERGE_SHA" --jq '.parents | length')
           if (( parents < 2 )); then
-            warn "The bump pull request was squash- or rebase-merged, so the tagged commit isn't part of main's history. Merge bump pull requests with a merge commit."
+            msg="The bump pull request was squash- or rebase-merged, so the tagged commit isn't part of main's history. Merge bump pull requests with a merge commit."
+            echo "::warning::$msg"
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
           fi

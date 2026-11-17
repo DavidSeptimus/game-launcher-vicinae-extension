@@ -7,7 +7,8 @@
 # icon sources) stays behind. Nothing is committed.
 #
 # Usage: scripts/sync-to-store.sh <vicinae-extensions checkout> [git ref, default HEAD]
-# The ref is read from this script's repo, or from the repo at $SOURCE_REPO if set.
+# The ref is read from this script's repo, or from the repo at $SOURCE_REPO if set. With NO_LOCKFILE=1, the store's
+# package-lock.json is left as it is instead of being updated (no npm needed); scripts/store-match.sh uses this.
 set -euo pipefail
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
@@ -80,7 +81,9 @@ node -e '
 if [[ -f "$tmp/package-lock.json" ]]; then
   cp "$tmp/package-lock.json" package-lock.json
 fi
-# Same peer-dependency mode as the store CI (npm ci --legacy-peer-deps).
-npm install --package-lock-only --legacy-peer-deps --no-audit --no-fund
+if [[ "${NO_LOCKFILE:-}" != 1 ]]; then
+  # Same peer-dependency mode as the store CI (npm ci --legacy-peer-deps).
+  npm install --package-lock-only --legacy-peer-deps --no-audit --no-fund
+fi
 
 echo "Synced ${commit:0:7} ($ref) to $dest"
