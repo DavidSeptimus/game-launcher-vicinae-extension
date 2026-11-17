@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Hide Game / Unhide Game moved from Ctrl+H to Ctrl+Shift+H, and Show in Steam Library no longer has a shortcut, so
+  Ctrl+H and Ctrl+L move left and right in the grid again
+  ([vicinaehq/extensions#460](https://github.com/vicinaehq/extensions/issues/460)).
+- Open Store Page no longer has a shortcut (it was Ctrl+S).
+- Launch with *other launcher* is now Shift+Enter, the key the action panel shows for it, instead of Ctrl+Enter. Show in Steam Library moved
+  to the Steam section and Open Install Folder to the last section, so Shift+Enter only ever launches the game.
+
 ## [1.0.0] - 2026-11-16
 
 ### Added
