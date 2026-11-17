@@ -130,14 +130,13 @@ request: that merges `main` into the release branch, and the next push would sen
 After the store merges, resolving conflicts (typically in `CHANGELOG.md`, from entries added to `[Unreleased]` on
 `main` meanwhile) is safe, **as the last thing on the branch**: copy in maintainer changes (step 4) first. Those pushes
 aren't sent, and the tag skips the merge: it goes on the newest commit of the release branch's own line that isn't a
-merge, so `main`'s newer work stays out of it. If a commit lands on the branch after such a merge, tagging is refused
-(the commit would carry `main` into the tag) and nothing is released. Tag the commit that matches the store by hand
-then, with the changelog section as notes:
+merge, so `main`'s newer work stays out of it.
 
-```bash
-scripts/changelog-notes.sh CHANGELOG.md vX.Y.Z > /tmp/notes.md   # on a checkout of that commit
-gh release create vX.Y.Z --target <commit> --title vX.Y.Z --notes-file /tmp/notes.md
-```
+Tagging is refused, and nothing is released, when the commit it would tag could carry `main` into the release: a
+commit landed on the branch after such a merge, the branch was rebased (onto `main` or otherwise) after the store
+merged, or `main` was merged into it with `main` as the first parent. The bump pull request is merged by then, so
+re-running doesn't help: the Tag release run's summary has the commands to tag the right commit by hand, with the
+commits filled in (check it with `scripts/store-match.sh`, then `gh release create`).
 
 Pushes to different release branches, and starting a release, run independently. Pushes to the same branch run one at
 a time; if several queue up, GitHub keeps only the newest waiting run, which sends the newest commits anyway.
@@ -193,9 +192,10 @@ which release the fork's branch holds and whether a merged store pull request co
 
 `.github/workflows/release-tag.yml` runs when a `release/v*` pull request is merged into `main`. It finds the store
 pull request that merged the release and the last commit sent to it (from the `Source-Commit` trailers). It tags the
-newest commit on the pull request head's first-parent line that isn't a merge, after checking its `package.json`
-version and that no merge commit sits between the last commit sent and it, and creates the GitHub release with the
-store pull request and its merge commit in the notes. Nothing checks that maintainer changes were copied in (step 4).
+newest commit on the pull request head's first-parent line that isn't a merge, after checking that it contains the
+last commit sent with no merge commit in between, and its `package.json` version. It creates the GitHub release with
+the store pull request and its merge commit in the notes; if a check fails, it tags nothing and its summary has the
+commands to tag by hand. Nothing checks that maintainer changes were copied in (step 4).
 It fails if the store hasn't merged the release, and warns if the bump pull request wasn't merged with a merge commit.
 
 ```mermaid

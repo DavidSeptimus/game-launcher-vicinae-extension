@@ -4,8 +4,10 @@
 # The tag goes on the newest commit of the release branch's own line (first parents) that isn't a merge: the head, or
 # the commit before it when the head merged main in to resolve conflicts, so main's newer work stays out of the tag.
 # That commit is the release as the store published it once changes a store maintainer made in the store pull request
-# have been copied into release/vX.Y.Z by hand (docs/development.md); nothing checks that. Tagging is refused if a merge
-# commit sits between the last commit sent to the store and that commit, since main would then be in the tag.
+# have been copied into release/vX.Y.Z by hand (docs/development.md); nothing checks that. Tagging is refused if that
+# commit doesn't contain the last commit sent to the store (a rebase, or a first-parent line through main) or a merge
+# commit sits between the two, since main could then be in the tag; the run summary then has the commands to tag the
+# right commit by hand.
 #
 # Store commits made by store-release.yml carry a "Source-Commit: <sha>" trailer, which scripts/store-state.sh uses to
 # find the store pull request that merged this release and the last commit sent to it. If the store hasn't merged the
@@ -73,15 +75,44 @@ jobs:
           # A squash or rebase merge leaves the head out of the merge commit's history.
           git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null || git fetch --quiet origin "$HEAD_SHA"
           target=$(git rev-list --first-parent --no-merges -n1 "$HEAD_SHA")
+
+          # Refusing tags nothing; the summary has the commands to tag the right commit by hand, filled in.
+          refuse() {
+            echo "::error::$1 Nothing was tagged or released; the run summary has the commands to tag it by hand."
+            cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## $tag not tagged
+
+          $1
+
+          Nothing was tagged or released. Tag the commit that matches what the store published by hand. That's
+          usually ${sent:0:7}, the last commit sent to the store, or a later commit on $HEAD_REF that copied in a
+          store maintainer's change. From an up-to-date checkout of main:
+
+          \`\`\`bash
+          commit=$sent   # change this if a later commit is the right one
+          git fetch origin
+          scripts/store-match.sh . "\$commit" $store_commit   # prints "Matches." for the right commit
+          git show "\$commit:CHANGELOG.md" > /tmp/CHANGELOG.md
+          scripts/changelog-notes.sh /tmp/CHANGELOG.md $tag > /tmp/notes.md
+          printf '\nPublished to the Vicinae store in %s (merge commit %s).\n' '$UPSTREAM#$store_pr' '$UPSTREAM@$store_commit' >> /tmp/notes.md
+          gh release create $tag --target "\$commit" --title $tag --notes-file /tmp/notes.md
+          \`\`\`
+          EOF
+            exit 1
+          }
+
+          # The tag must hold what was sent to the store and nothing from main: the last commit sent is in its history
+          # (not so after a rebase, or when the first-parent line runs through main), and no merge commit is in between.
+          if ! git merge-base --is-ancestor "$sent" "$target" 2>/dev/null; then
+            refuse "${target:0:7}, the commit to tag on $HEAD_REF, doesn't contain ${sent:0:7}, the last commit sent to the store: the branch was rebased or rewritten after the store merged, or main was merged into it with main as the first parent. Tagging it could release main's newer work as $tag."
+          fi
           merges=$(git log --merges --format='%h %s' "$sent..$target" | paste -sd ';' | sed 's/;/; /g')
           if [[ -n "$merges" ]]; then
-            echo "::error::$HEAD_REF has a merge commit ($merges) between the last commit sent to the store (${sent:0:7}) and ${target:0:7}, so tagging ${target:0:7} would release main's newer work as $tag. Nothing was tagged. Tag the commit that matches the store by hand: gh release create $tag --target <commit> --title $tag --notes-file <notes> (see docs/development.md)."
-            exit 1
+            refuse "$HEAD_REF has a merge commit ($merges) between ${sent:0:7}, the last commit sent to the store, and ${target:0:7}, the commit to tag, so tagging it would release main's newer work as $tag."
           fi
           version=$(git show "$target:package.json" | jq -r .version)
           if [[ "v$version" != "$tag" ]]; then
-            echo "::error::${target:0:7} on $HEAD_REF has version $version, not ${tag#v}"
-            exit 1
+            refuse "${target:0:7}, the commit to tag on $HEAD_REF, has version $version, not ${tag#v}."
           fi
 
           git show "$target:CHANGELOG.md" > "$RUNNER_TEMP/CHANGELOG.md"
