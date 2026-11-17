@@ -91,11 +91,24 @@ with no entries under `[Unreleased]` (headings alone don't count) is refused.
 3. **Answer the store review.** Commit any changes the reviewers ask for to `release/vX.Y.Z` and push; each push is sent
    to the store pull request. Amending or force-pushing the branch is fine. If a store maintainer pushes to the pull
    request themselves, copy their change into `release/vX.Y.Z` too: a push that would undo it is refused.
-4. **Merge the bump pull request** ("Release vX.Y.Z", opened by the workflow once the store has the release) after the
+4. **Copy in any maintainer changes.** Once the store has merged, look at the store pull request's commits. If a
+   maintainer added one after the last commit from this repo (those end with a `Source-Commit:` line), copy its
+   change into `release/vX.Y.Z` and push (pushes after the store merged aren't sent to the store).
+   `scripts/store-match.sh` shows what the store has that the branch doesn't, and prints "Matches." once nothing is
+   missing:
+
+   ```bash
+   git fetch origin
+   scripts/store-match.sh . origin/release/vX.Y.Z "$(gh api repos/vicinaehq/extensions/pulls/<store PR> --jq .merge_commit_sha)"
+   ```
+
+   Don't add a changelog entry for it: the store's users already have it as part of vX.Y.Z. Skipping this step leaves
+   the tag different from what the store published, and the next release would undo the maintainer's change.
+5. **Merge the bump pull request** ("Release vX.Y.Z", opened by the workflow once the store has the release) after the
    store has merged it, **with a merge commit** (not squash or rebase, so the tag stays in `main`'s history). Merging
-   tags `vX.Y.Z` on the commit the store merged and creates the GitHub release with the changelog section as its
-   notes. If the store hasn't merged yet, tagging fails; re-run it (Actions › Tag release › Re-run all jobs) once it
-   has.
+   tags `vX.Y.Z` on the release branch (its head, or the commit before a conflict-resolving merge; see below) and
+   creates the GitHub release, with the changelog section and the store pull request as its notes. If the store
+   hasn't merged yet, tagging fails; re-run it (Actions › Tag release › Re-run all jobs) once it has.
 
 Pushes to `release/vX.Y.Z` keep being sent until the store merges the release, so they also cover retries: if a run
 fails (say, a store check), fix it on the release branch and push; if the store closes its pull request without
@@ -115,7 +128,16 @@ A new release can't start while a bump pull request is open, a store pull reques
 While the store is reviewing a release, don't use GitHub's "Update branch" or "Resolve conflicts" on the bump pull
 request: that merges `main` into the release branch, and the next push would send `main`'s newer work to the store.
 After the store merges, resolving conflicts (typically in `CHANGELOG.md`, from entries added to `[Unreleased]` on
-`main` meanwhile) is safe: those pushes aren't sent, and the tag still goes on the commit the store merged.
+`main` meanwhile) is safe, **as the last thing on the branch**: copy in maintainer changes (step 4) first. Those pushes
+aren't sent, and the tag skips the merge: it goes on the newest commit of the release branch's own line that isn't a
+merge, so `main`'s newer work stays out of it. If a commit lands on the branch after such a merge, tagging is refused
+(the commit would carry `main` into the tag) and nothing is released. Tag the commit that matches the store by hand
+then, with the changelog section as notes:
+
+```bash
+scripts/changelog-notes.sh CHANGELOG.md vX.Y.Z > /tmp/notes.md   # on a checkout of that commit
+gh release create vX.Y.Z --target <commit> --title vX.Y.Z --notes-file /tmp/notes.md
+```
 
 Pushes to different release branches, and starting a release, run independently. Pushes to the same branch run one at
 a time; if several queue up, GitHub keeps only the newest waiting run, which sends the newest commits anyway.
@@ -169,11 +191,12 @@ which release the fork's branch holds and whether a merged store pull request co
   to a new store pull request when none is open (title and, if short enough, description prefilled; full description
   shown), and opens the "Release vX.Y.Z" bump pull request into `main` unless one is open or merged already.
 
-`.github/workflows/release-tag.yml` runs when a `release/v*` pull request is merged into `main`. It finds the last
-commit a merged store pull request took from that release branch (from the `Source-Commit` trailers), checks its
-`package.json` version, tags it and creates the GitHub release. It fails if the store hasn't merged the release. It
-warns if the store's pull request also merged commits that aren't on the release branch (bring those into `main`), and
-if the bump pull request wasn't merged with a merge commit.
+`.github/workflows/release-tag.yml` runs when a `release/v*` pull request is merged into `main`. It finds the store
+pull request that merged the release and the last commit sent to it (from the `Source-Commit` trailers). It tags the
+newest commit on the pull request head's first-parent line that isn't a merge, after checking its `package.json`
+version and that no merge commit sits between the last commit sent and it, and creates the GitHub release with the
+store pull request and its merge commit in the notes. Nothing checks that maintainer changes were copied in (step 4).
+It fails if the store hasn't merged the release, and warns if the bump pull request wasn't merged with a merge commit.
 
 ```mermaid
 flowchart TD
@@ -195,8 +218,9 @@ flowchart TD
 
     finish --> review["You: open the store PR; store reviews<br/>(changes → push to release/vX.Y.Z)"]
     review --> merged(["Store merges and publishes vX.Y.Z"])
-    merged --> mergebump["You: merge the bump PR with a merge commit"]
-    mergebump --> tag(["release-tag.yml: tag vX.Y.Z on the commit the store merged,<br/>create the GitHub release"])
+    merged --> copy["You: copy any maintainer changes from the<br/>store PR into release/vX.Y.Z (store-match.sh)"]
+    copy --> mergebump["You: merge the bump PR with a merge commit"]
+    mergebump --> tag(["release-tag.yml: tag vX.Y.Z on the release branch<br/>(skipping a conflict merge), create the GitHub release"])
 ```
 
 ### One-time setup
