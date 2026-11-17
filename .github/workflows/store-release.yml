@@ -5,8 +5,9 @@
 # Push to release/vX.Y.Z: sends the branch's new commits to the store until the store merges the release (review
 #   fixes, or a retry after a failed run or a store pull request closed without merging).
 #
-# version  checks no other release is in flight, works out the version and edits package.json and CHANGELOG.md
-#          (keep-a-changelog; read-only token).
+# version  checks no other release is in flight and that main has the changes the store made to its copy since the
+#          last release, works out the version and edits package.json and CHANGELOG.md (keep-a-changelog; read-only
+#          token).
 # plan     checks the edit, commits it on a new release/vX.Y.Z branch, or picks up the pushed release branch
 #          (no third-party code).
 # prepare  decides where the release goes on the fork, builds the store change as a patch and uploads it
@@ -30,6 +31,10 @@ on:
       version:
         description: Or an exact version, e.g. 1.0.0 (overrides the bump)
         required: false
+      ignore_store_changes:
+        description: Release even if the store's copy has changes main seems to lack (only once you've checked them)
+        type: boolean
+        default: false
   push:
     branches: ['release/v*']
 
@@ -122,6 +127,74 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
+
+      # The store's main changes its copy of the extension without us (store-wide maintainer sweeps such as an
+      # @vicinae/api bump, direct maintainer fixes, other people's pull requests). The release replaces that copy with
+      # main's, so main has to have those changes; this stops before anything is created if it doesn't.
+      - name: Check main has the store's changes since the last release
+        if: steps.mode.outputs.mode == 'start'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IGNORE: ${{ inputs.ignore_store_changes }}
+        run: |
+          last=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          if [[ -z "$last" ]]; then
+            echo "No earlier release; nothing to check."
+            exit 0
+          fi
+          store_main=$(git ls-remote "https://github.com/$UPSTREAM.git" refs/heads/main | cut -f1)
+          set +e
+          scripts/store-drift.sh . "$last" HEAD "$store_main" > "$RUNNER_TEMP/drift.txt"
+          status=$?
+          set -e
+          case $status in
+            0) exit 0 ;;
+            1) ;;
+            *) echo "::error::Couldn't compare main with the store's copy of the extension; see the log above."; exit 1 ;;
+          esac
+
+          # The store's commits to the extension since it merged the last release.
+          state=$(scripts/store-state.sh . "$last")
+          store_pr=$(sed -n 's/^merged_pr=//p' <<<"$state")
+          since="" merge=""
+          if [[ -n "$store_pr" ]]; then
+            read -r since merge < <(gh api "repos/$UPSTREAM/pulls/$store_pr" --jq '"\(.merged_at) \(.merge_commit_sha)"')
+          fi
+          commits=$(gh api "repos/$UPSTREAM/commits?sha=main&path=extensions/$EXTENSION&per_page=30${since:+&since=$since}" \
+            | jq -r --arg merge "$merge" '.[] | select(.sha != $merge)
+                | "- \(.sha[0:7]) \(.commit.committer.date[0:10]) \(.author.login // .commit.author.name): \(.commit.message | split("\n")[0])"')
+
+          {
+            echo "## The store changed the extension since $last, and main doesn't have it"
+            echo
+            echo "A release replaces the store's copy of \`extensions/$EXTENSION\` with main's, so it would undo these changes. Nothing was created."
+            echo
+            if [[ -n "$commits" ]]; then
+              echo "Store commits to the extension since it merged $last${store_pr:+ (#$store_pr)}:"
+              echo
+              echo "$commits"
+              echo
+            fi
+            echo "What the store has that $last doesn't, in store paths (the store's README is only the description blocks of ours):"
+            echo
+            echo '````diff'
+            cat "$RUNNER_TEMP/drift.txt"
+            echo '````'
+            echo
+            echo "Copy these changes into main (no changelog entry: the store's users already have them), then run the workflow again. To check from an up-to-date checkout of main:"
+            echo
+            echo '```bash'
+            echo "scripts/store-drift.sh . $last HEAD $store_main   # exit 0: main has them"
+            echo '```'
+            echo
+            echo "If main deliberately replaces a change (say, a newer @vicinae/api than the store's bump), run the workflow again with **ignore_store_changes** ticked."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$IGNORE" == true ]]; then
+            echo "::warning::The store's copy has changes since $last that main seems to lack; going ahead because ignore_store_changes is set. The run summary lists them."
+            exit 0
+          fi
+          echo "::error::The store changed its copy of the extension since $last and main doesn't have those changes, so releasing would undo them. Nothing was created; the run summary shows the changes and what to do."
+          exit 1
 
       - name: Bump the version and changelog
         id: bump

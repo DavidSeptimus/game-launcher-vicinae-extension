@@ -87,6 +87,14 @@ with no entries under `[Unreleased]` (headings alone don't count) is refused.
    exact version (the first release is `1.0.0`; pre-release versions are refused). The workflow sets
    `package.json`'s version, dates the changelog, commits that as "Release vX.Y.Z" on a new `release/vX.Y.Z` branch,
    and sends that commit to the store fork.
+
+   Before any of that, it checks that `main` has the changes the store made to its copy of the extension since the
+   last release, because the release replaces the store's copy with `main`'s. The store does change it on its own:
+   maintainers sweep every extension now and then (an `@vicinae/api` bump, a new manifest field), and fix or accept
+   other people's pull requests for single extensions. If `main` lacks some, the run stops with nothing created and its
+   summary lists the store's commits and the difference. Copy the changes into `main` (no changelog entry: the store's
+   users already have them) and run it again. If `main` deliberately replaces one of them, say with a newer
+   `@vicinae/api` than the store's bump, run it again with **ignore_store_changes** ticked.
 2. **Open the store pull request** from the link in the run's summary.
 3. **Answer the store review.** Commit any changes the reviewers ask for to `release/vX.Y.Z` and push; each push is sent
    to the store pull request. Amending or force-pushing the branch is fine. If a store maintainer pushes to the pull
@@ -163,8 +171,11 @@ the build, the tests) runs, and that code can't change what gets pushed. Every s
 back: a commit belongs to the release whose "Release vX.Y.Z" commit is the newest one in its history, which tells
 which release the fork's branch holds and whether a merged store pull request contained this release.
 
-- **version** (read-only) on a start: checks nothing else is in flight, runs keep-a-changelog and `npm version`, checks
-  the version is a plain X.Y.Z higher than the last, and hands the two edited files on. On a push: stops the run if the
+- **version** (read-only) on a start: checks nothing else is in flight, and that `main` has the store's changes to its
+  copy since the last release (`scripts/store-drift.sh`: what the store's `main` has that the last tag doesn't has to
+  be in `main`, tested by reverse-applying it to `main`'s synced tree without context lines, so our own nearby edits
+  don't count against it). Then it runs keep-a-changelog and `npm version`, checks the version is a plain X.Y.Z higher
+  than the last, and hands the two edited files on. On a push: stops the run if the
   release is already tagged.
 - **plan** (writes to this repo, no third-party code) checks the edit is only the bump (`package.json` differs only in
   `version`, `CHANGELOG.md` only in release headings and links), commits "Release vX.Y.Z" and pushes
@@ -250,6 +261,13 @@ To preview a version bump without committing it, run the same command the workfl
 
 ```bash
 npx keep-a-changelog@3.2.0 --format=markdownlint --release --version=minor --create=none --dry-run
+```
+
+To check, as the start of a release does, that `main` has everything the store changed since the last release (exit
+0 if so; otherwise it prints the store's changes):
+
+```bash
+scripts/store-drift.sh . v1.2.0 HEAD "$(git ls-remote https://github.com/vicinaehq/extensions.git refs/heads/main | cut -f1)"
 ```
 
 `scripts/changelog-notes.sh CHANGELOG.md Unreleased` prints what the next release will contain, and this shows what
